@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────
+# SECURITY: Files that must NEVER be committed to GitHub
+# ─────────────────────────────────────────────────────────────
+
+# Real Terraform values (contains passwords, your IP, API keys)
+terraform/terraform.tfvars
+
+# Terraform working files
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfplan
+
+# App secrets
+app/.env
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# SSH keys (NEVER commit these)
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml

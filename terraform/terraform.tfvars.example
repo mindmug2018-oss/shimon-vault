@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────
+# terraform.tfvars.example
+# Copy this to terraform.tfvars and fill in real values.
+# terraform.tfvars is in .gitignore — never commit it.
+# ─────────────────────────────────────────────────────────────
+
+project_name   = "shimonvault"
+environment    = "dev"
+aws_region     = "ap-northeast-2"
+
+# Your public IP — run: curl ifconfig.me
+# Add /32 at the end (means "just this one IP")
+your_ip_cidr   = "YOUR_PUBLIC_IP/32"
+
+# EC2 Key Pair name — must match what you created in AWS Console
+key_pair_name  = "shimonvault-key"
+
+# Database credentials — choose something strong
+db_name        = "shimonvault"
+db_username    = "shimonvault"
+db_password    = "REPLACE_WITH_STRONG_PASSWORD"
+
+# Tailscale auth key — from Tailscale Admin Console → Keys
+tailscale_auth_key = "tskey-auth-REPLACE_WITH_YOUR_KEY"
+
+# Docker Hub username (e.g. mindmug)
+dockerhub_username = "mindmug"
+
+# App image tag — keep as "latest" for now
+app_image_tag  = "latest"
+
+# Tailscale IP of your on-prem server — run: tailscale ip -4
+onprem_tailscale_ip = "100.x.x.x"

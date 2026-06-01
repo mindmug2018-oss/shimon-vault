@@ -1,0 +1,152 @@
+version: "3.8"
+
+# ─────────────────────────────────────────────────────────────
+# ShimonVault — On-prem monitoring stack
+#
+# Run on your on-prem Linux server (proj-mgmt).
+# These containers run ALWAYS — they are never destroyed
+# because they are not on AWS. No cost, no teardown needed.
+#
+# Week 1: Start PostgreSQL replica first.
+# Week 2: Uncomment Prometheus + Grafana when app is deployed.
+#
+# Start: docker-compose up -d
+# Stop:  docker-compose down
+# Logs:  docker-compose logs -f [service-name]
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ─────────────────────────────────────────────
+  # PostgreSQL — Read replica of AWS RDS primary
+  #
+  # In Week 1: starts as a standalone instance
+  # In Week 2: you will configure replication from RDS
+  # ─────────────────────────────────────────────
+  postgres-replica:
+    image: postgres:15-alpine
+    container_name: shimonvault-postgres-replica
+    restart: always
+    environment:
+      POSTGRES_DB: shimonvault
+      POSTGRES_USER: shimonvault
+      POSTGRES_PASSWORD: ${DB_PASSWORD}   # set in .env file on this server
+    ports:
+      - "5432:5432"   # accessible on localhost:5432 and via Tailscale
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d  # runs SQL on first start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shimonvault -d shimonvault"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─────────────────────────────────────────────
+  # Prometheus — metrics collection
+  # Scrapes: node_exporter, cAdvisor, FastAPI /metrics
+  # ─────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: shimonvault-prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"   # allows hot-reload via POST /-/reload
+    depends_on:
+      - alertmanager
+
+  # ─────────────────────────────────────────────
+  # Grafana — dashboards and visualization
+  # ─────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: shimonvault-grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "http://localhost:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+  # ─────────────────────────────────────────────
+  # Alertmanager — routes alerts to Slack + Telegram
+  # ─────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: shimonvault-alertmanager
+    restart: always
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+
+  # ─────────────────────────────────────────────
+  # node_exporter — system metrics for this on-prem server
+  # ─────────────────────────────────────────────
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: shimonvault-node-exporter
+    restart: always
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+
+  # ─────────────────────────────────────────────
+  # cAdvisor — Docker container metrics
+  # ─────────────────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: shimonvault-cadvisor
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+
+  # ─────────────────────────────────────────────
+  # Telegram relay — forwards Alertmanager webhooks to Telegram
+  # Created in Week 3
+  # ─────────────────────────────────────────────
+  # telegram-relay:
+  #   build: ./telegram_relay
+  #   container_name: shimonvault-telegram-relay
+  #   restart: always
+  #   ports:
+  #     - "8001:8001"
+  #   environment:
+  #     TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+  #     TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:

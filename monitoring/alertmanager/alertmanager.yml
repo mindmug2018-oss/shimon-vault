@@ -1,0 +1,31 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "instance"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: "all-channels"
+
+receivers:
+  - name: "all-channels"
+    slack_configs:
+      - api_url: "{{ env \"SLACK_WEBHOOK_URL\" }}"
+        channel: "#shimonvault-alerts"
+        title: "{{ .CommonAnnotations.summary }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+        send_resolved: true
+        icon_emoji: ":rotating_light:"
+
+    # Telegram relay added in Week 3
+    # webhook_configs:
+    #   - url: "http://telegram-relay:8001/telegram-relay"
+    #     send_resolved: true
+
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "instance"]
