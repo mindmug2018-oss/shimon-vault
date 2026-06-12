@@ -1,0 +1,5 @@
+# lambda/block_ip/requirements.txt
+# boto3 is already provided by the Lambda runtime
+# Only add packages NOT in the runtime
+
+requests>=2.31.0

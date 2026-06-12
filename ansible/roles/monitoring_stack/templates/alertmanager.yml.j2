@@ -1,0 +1,43 @@
+# ansible/roles/monitoring_stack/templates/alertmanager.yml.j2
+#
+# Alertmanager routes every alert to BOTH Slack and Telegram simultaneously.
+# Telegram is handled via a small relay service (telegram_relay/relay.py)
+# because Alertmanager doesn't support Telegram natively.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'instance']
+  group_wait:      30s
+  group_interval:  5m
+  repeat_interval: 4h
+  receiver: 'all-channels'
+
+receivers:
+  - name: 'all-channels'
+
+    slack_configs:
+      - api_url: '{% raw %}{{ env "SLACK_WEBHOOK_URL" }}{% endraw %}'
+        channel: '#shimonvault-alerts'
+        title: '{% raw %}{{ .CommonAnnotations.summary }}{% endraw %}'
+        text: '{% raw %}{{ range .Alerts }}{{ .Annotations.description }}{{ end }}{% endraw %}'
+        send_resolved: true
+        # Color: red for firing, green for resolved
+        color: '{% raw %}{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}{% endraw %}'
+
+    webhook_configs:
+      # Telegram relay: a small FastAPI app on this server that
+      # forwards Alertmanager webhooks to the Telegram Bot API.
+      # See: monitoring/telegram_relay/relay.py
+      - url: 'http://telegram-relay:8001/alert'
+        send_resolved: true
+
+inhibit_rules:
+  # If a node is down, suppress the FastAPI down alert for the same instance —
+  # the node down alert is more informative and less noisy.
+  - source_match:
+      alertname: NodeDown
+    target_match:
+      alertname: FastAPIDown
+    equal: ['instance']

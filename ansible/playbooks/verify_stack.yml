@@ -1,0 +1,121 @@
+---
+# ansible/playbooks/verify_stack.yml
+# Quick end-to-end health check for the entire ShimonVault stack.
+# Safe to run at any time — read-only, makes no changes.
+# Usage: ansible-playbook playbooks/verify_stack.yml
+
+- name: Verify ShimonVault stack health
+  hosts: role_app
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Check FastAPI /health endpoint
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:8000/health"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: app_health
+      ignore_errors: true
+
+    - name: Check Prometheus /metrics endpoint on app
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:8000/metrics"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: metrics_health
+      ignore_errors: true
+
+    - name: Check node_exporter
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:9100/metrics"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: node_exporter_health
+      ignore_errors: true
+
+    - name: Print instance health summary
+      ansible.builtin.debug:
+        msg:
+          - "Instance: {{ inventory_hostname }} ({{ ansible_host }})"
+          - "  FastAPI /health:    {{ '✅ OK' if app_health.status == 200 else '❌ FAILED (' + (app_health.msg | default('unknown')) + ')' }}"
+          - "  FastAPI /metrics:   {{ '✅ OK' if metrics_health.status == 200 else '❌ FAILED' }}"
+          - "  node_exporter:      {{ '✅ OK' if node_exporter_health.status == 200 else '❌ FAILED' }}"
+
+- name: Verify Docker Swarm and Stack
+  hosts: role_app
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Check swarm node status
+      ansible.builtin.command: docker node ls
+      register: swarm_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Check stack services
+      ansible.builtin.command: docker stack services shimonvault
+      register: stack_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Print swarm and stack status
+      ansible.builtin.debug:
+        msg:
+          - "=== Docker Swarm nodes ==="
+          - "{{ swarm_status.stdout_lines | default(['swarm not running or permission denied']) }}"
+          - "=== Stack services ==="
+          - "{{ stack_status.stdout_lines | default(['stack not deployed']) }}"
+
+- name: Verify on-prem monitoring stack
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    onprem_host: "{{ onprem_monitoring_host | default('localhost') }}"
+
+  tasks:
+    - name: Check Prometheus
+      ansible.builtin.uri:
+        url: "http://{{ onprem_host }}:9090/-/ready"
+        status_code: 200
+        timeout: 10
+      register: prom_check
+      ignore_errors: true
+
+    - name: Check Grafana
+      ansible.builtin.uri:
+        url: "http://{{ onprem_host }}:3000/api/health"
+        status_code: 200
+        timeout: 10
+      register: grafana_check
+      ignore_errors: true
+
+    - name: Check Alertmanager
+      ansible.builtin.uri:
+        url: "http://{{ onprem_host }}:9093/-/ready"
+        status_code: 200
+        timeout: 10
+      register: alertmanager_check
+      ignore_errors: true
+
+    - name: Check Telegram relay
+      ansible.builtin.uri:
+        url: "http://{{ onprem_host }}:8001/health"
+        status_code: 200
+        timeout: 10
+      register: telegram_relay_check
+      ignore_errors: true
+
+    - name: Print monitoring stack health summary
+      ansible.builtin.debug:
+        msg:
+          - "On-prem monitoring stack ({{ onprem_host }}):"
+          - "  Prometheus:       {{ '✅ OK' if prom_check.status == 200 else '❌ FAILED' }}"
+          - "  Grafana:          {{ '✅ OK' if grafana_check.status == 200 else '❌ FAILED' }}"
+          - "  Alertmanager:     {{ '✅ OK' if alertmanager_check.status == 200 else '❌ FAILED' }}"
+          - "  Telegram relay:   {{ '✅ OK' if telegram_relay_check.status == 200 else '❌ FAILED' }}"

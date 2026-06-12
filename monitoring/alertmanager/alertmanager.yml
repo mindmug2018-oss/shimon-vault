@@ -2,7 +2,7 @@ global:
   resolve_timeout: 5m
 
 route:
-  group_by: ["alertname", "instance"]
+  group_by: ["alertname", "instance", "severity"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
@@ -11,21 +11,44 @@ route:
 receivers:
   - name: "all-channels"
     slack_configs:
-      - api_url: "{{ env \"SLACK_WEBHOOK_URL\" }}"
-        channel: "#shimonvault-alerts"
-        title: "{{ .CommonAnnotations.summary }}"
-        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+      - api_url: '{{ env "SLACK_WEBHOOK_URL" }}'
+        channel: '#shimonvault-alerts'
         send_resolved: true
-        icon_emoji: ":rotating_light:"
+        title: >-
+          {{ if eq .Status "firing" }}
+          🚨 [ALERT] {{ .CommonAnnotations.summary }}
+          {{ else }}
+          ✅ [RESOLVED] {{ .CommonAnnotations.summary }}
+          {{ end }}
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Details:* {{ .Annotations.description }}
+          *Instance:* {{ .Labels.instance }}
+          *Severity:* {{ .Labels.severity }}
+          *Time:* {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+          {{ end }}
+        icon_emoji: ":warning:"
+        username: "ShimonVault Alertmanager"
 
-    # Telegram relay added in Week 3
-    # webhook_configs:
-    #   - url: "http://telegram-relay:8001/telegram-relay"
-    #     send_resolved: true
+    # ── Telegram (via relay service) ─────────────────────────────────────────
+    # Alertmanager does not support Telegram natively.
+    # We route to a tiny Python relay service (monitoring/telegram_relay/)
+    # that converts the Alertmanager webhook payload to a Telegram Bot API call.
+    webhook_configs:
+      - url: "http://telegram-relay:8001/alert"
+        send_resolved: true
+        http_config:
+          follow_redirects: true
 
+
+# ─── Inhibit Rules ────────────────────────────────────────────────────────────
+# Inhibit rules suppress child alerts when a parent alert is already firing.
+# Example: if the whole instance is down (NodeDown), suppress CPU/memory alerts
+# for that instance — they're a consequence, not a separate problem.
 inhibit_rules:
   - source_match:
-      severity: "critical"
-    target_match:
-      severity: "warning"
-    equal: ["alertname", "instance"]
+      alertname: "NodeDown"
+    target_match_re:
+      alertname: "(HighCPU|HighMemory|FastAPIDown)"
+    equal: ["instance"]

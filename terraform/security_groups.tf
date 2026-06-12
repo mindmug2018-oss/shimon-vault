@@ -169,3 +169,26 @@ resource "aws_security_group" "nat" {
 
   tags = { Name = "${var.project_name}-nat-sg" }
 }
+# Add to terraform/security_groups.tf
+
+# Docker TLS TCP — only from Tailscale CGNAT range (proj-mgmt)
+resource "aws_security_group_rule" "app_docker_tls" {
+  type              = "ingress"
+  from_port         = 2376
+  to_port           = 2376
+  protocol          = "tcp"
+  cidr_blocks       = ["100.64.0.0/10"]  # Tailscale CGNAT range only
+  security_group_id = aws_security_group.app.id
+  description       = "Docker TLS TCP - Portainer on proj-mgmt via Tailscale only"
+}
+
+# NFS from Tailscale only (proj-ubuntu01 NFS server)
+resource "aws_security_group_rule" "app_nfs" {
+  type              = "ingress"
+  from_port         = 2049
+  to_port           = 2049
+  protocol          = "tcp"
+  cidr_blocks       = ["100.64.0.0/10"]
+  security_group_id = aws_security_group.app.id
+  description       = "NFS from Tailscale - proj-ubuntu01 shared storage"
+}

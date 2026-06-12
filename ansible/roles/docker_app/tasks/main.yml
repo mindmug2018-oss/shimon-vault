@@ -1,0 +1,104 @@
+---
+# ansible/roles/docker_app/tasks/main.yml
+#
+# This role:
+#   1. Installs Docker on an Amazon Linux 2023 EC2 instance
+#   2. Logs in to Docker Hub using the provided token
+#   3. Pulls the shimonvault-app image (specified tag)
+#   4. Runs the container with all required env vars
+#   5. Confirms the /health endpoint is responding
+#
+# Applied to: app EC2 blue and green instances
+# Tags:
+#   docker        — only install Docker
+#   app           — only deploy/restart the container
+#   health_check  — only run the health check
+
+- name: Install Docker (Amazon Linux 2023)
+  ansible.builtin.dnf:
+    name:
+      - docker
+      - python3-pip
+    state: present
+  become: true
+  tags: [docker]
+
+- name: Install Docker SDK for Python (needed for Ansible docker modules)
+  ansible.builtin.pip:
+    name: docker
+    state: present
+  become: true
+  tags: [docker]
+
+- name: Start and enable Docker service
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  become: true
+  tags: [docker]
+
+- name: Add ec2-user to docker group (no sudo needed for docker commands)
+  ansible.builtin.user:
+    name: ec2-user
+    groups: docker
+    append: true
+  become: true
+  tags: [docker]
+
+- name: Log in to Docker Hub
+  community.docker.docker_login:
+    username: "{{ dockerhub_username }}"
+    password: "{{ dockerhub_token }}"
+  no_log: true   # never print the token in output
+  tags: [docker, app]
+
+- name: Pull latest app image
+  community.docker.docker_image:
+    name: "{{ docker_hub_image }}"
+    tag: "{{ app_image_tag | default('latest') }}"
+    source: pull
+    force_source: true   # always pull even if tag already exists locally
+  tags: [app]
+
+- name: Stop and remove existing container (if running)
+  community.docker.docker_container:
+    name: shimonvault-app
+    state: absent
+  ignore_errors: true   # ok if container wasn't running
+  tags: [app]
+
+- name: Run shimonvault-app container
+  community.docker.docker_container:
+    name: shimonvault-app
+    image: "{{ docker_hub_image }}:{{ app_image_tag | default('latest') }}"
+    state: started
+    restart_policy: "{{ docker_restart_policy }}"
+    ports:
+      - "{{ docker_app_port }}:8000"
+    env: "{{ app_env_vars | combine(app_secrets) }}"
+    # Health check: Docker restarts container if /health stops responding
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+  no_log: false   # env vars are visible in logs — sensitive ones are in app_secrets
+  tags: [app]
+
+- name: Wait for app to be healthy (poll /health for up to 60 seconds)
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ docker_app_port }}/health"
+    method: GET
+    status_code: 200
+  register: health_result
+  until: health_result.status == 200
+  retries: 12
+  delay: 5
+  tags: [app, health_check]
+
+- name: Print health check result
+  ansible.builtin.debug:
+    msg: "✅ App is healthy on {{ ansible_host }}:{{ docker_app_port }}"
+  tags: [app, health_check]

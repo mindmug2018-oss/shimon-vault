@@ -1,0 +1,64 @@
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root",
+    "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log"
+  },
+  "metrics": {
+    "append_dimensions": {
+      "AutoScalingGroupName": "${aws:AutoScalingGroupName}",
+      "ImageId": "${aws:ImageId}",
+      "InstanceId": "${aws:InstanceId}",
+      "InstanceType": "${aws:InstanceType}"
+    },
+    "metrics_collected": {
+      "mem": {
+        "measurement": [
+          "mem_used_percent",
+          "mem_available",
+          "mem_total"
+        ],
+        "metrics_collection_interval": 60
+      },
+      "disk": {
+        "measurement": [
+          "used_percent",
+          "free",
+          "total"
+        ],
+        "metrics_collection_interval": 60,
+        "resources": ["/"]
+      },
+      "cpu": {
+        "measurement": [
+          "cpu_usage_idle",
+          "cpu_usage_user",
+          "cpu_usage_system"
+        ],
+        "metrics_collection_interval": 60,
+        "totalcpu": true
+      }
+    },
+    "namespace": "ShimonVault/EC2"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/messages",
+            "log_group_name": "/shimonvault/ec2/system",
+            "log_stream_name": "{instance_id}/messages",
+            "timezone": "UTC"
+          },
+          {
+            "file_path": "/var/log/docker",
+            "log_group_name": "/shimonvault/ec2/docker",
+            "log_stream_name": "{instance_id}/docker",
+            "timezone": "UTC"
+          }
+        ]
+      }
+    }
+  }
+}

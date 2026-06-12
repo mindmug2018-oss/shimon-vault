@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# monitoring/grafana/provisioning/dashboards/dashboards.yml
+#
+# Tells Grafana where to find dashboard JSON files.
+# Any .json file placed in the path below is automatically imported.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: 1
+
+providers:
+  - name: 'ShimonVault Dashboards'
+    orgId: 1
+    folder: 'ShimonVault'
+    type: file
+    disableDeletion: false        # allow deleting dashboards from UI
+    updateIntervalSeconds: 30     # check for new/updated JSON files every 30s
+    allowUiUpdates: true          # allow editing dashboards in UI
+    options:
+      path: /var/lib/grafana/dashboards   # mounted from monitoring/grafana/dashboards/

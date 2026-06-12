@@ -1,0 +1,12 @@
+---
+# ansible/roles/docker_app/defaults/main.yml
+# Default values — override in group_vars or with -e flags
+
+app_image_tag:      "latest"
+docker_app_port:    8000
+docker_restart_policy: always
+
+# app_secrets must be passed at runtime — never stored here
+# Example:
+#   ansible-playbook ... -e "app_secrets={'DB_PASSWORD':'xxx','JWT_SECRET_KEY':'yyy'}"
+app_secrets: {}

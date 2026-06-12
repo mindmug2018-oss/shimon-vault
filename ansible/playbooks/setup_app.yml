@@ -1,0 +1,54 @@
+---
+# ansible/playbooks/setup_app.yml
+#
+# Run this AFTER terraform apply to configure the app EC2 instances.
+# What it does:
+#   1. Installs Docker
+#   2. Installs CloudWatch Agent (for memory metrics)
+#   3. Pulls and runs the shimonvault-app container
+#   4. Confirms the app is healthy
+#
+# Usage (run from ansible/ directory):
+#
+#   # First time setup after terraform apply:
+#   ansible-playbook playbooks/setup_app.yml \
+#     -e "app_image_tag=latest" \
+#     -e "dockerhub_username=mindmug" \
+#     -e "dockerhub_token=$DOCKERHUB_TOKEN" \
+#     -e "app_secrets={'DB_HOST':'$DB_HOST','DB_PASSWORD':'$DB_PASSWORD','JWT_SECRET_KEY':'$JWT_SECRET_KEY','SLACK_WEBHOOK_URL':'$SLACK_WEBHOOK_URL','TELEGRAM_BOT_TOKEN':'$TELEGRAM_BOT_TOKEN','TELEGRAM_CHAT_ID':'$TELEGRAM_CHAT_ID'}"
+#
+#   # Redeploy only (Docker already installed):
+#   ansible-playbook playbooks/setup_app.yml --tags app \
+#     -e "app_image_tag=abc1234" \
+#     ...
+
+- name: Configure ShimonVault app EC2 instances
+  hosts: role_app
+  gather_facts: true
+  become: false
+
+  vars:
+    # These must be passed via -e at runtime — never hardcoded
+    # dockerhub_username: set via -e
+    # dockerhub_token:    set via -e
+    # app_secrets:        dict of sensitive env vars, set via -e
+    aws_account_id: "{{ lookup('pipe', 'aws sts get-caller-identity --query Account --output text') }}"
+
+  roles:
+    - role: docker_app
+    - role: cloudwatch_agent
+
+  post_tasks:
+    - name: Verify app is responding on expected port
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:8000/health"
+        method: GET
+        status_code: 200
+      register: final_check
+      tags: [health_check]
+
+    - name: Final health check result
+      ansible.builtin.debug:
+        msg: "✅ {{ inventory_hostname }} ({{ ansible_host }}) is healthy and serving traffic"
+      when: final_check.status == 200
+      tags: [health_check]

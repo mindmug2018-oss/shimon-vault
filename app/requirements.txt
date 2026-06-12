@@ -1,0 +1,22 @@
+# app/requirements.txt
+# Pin versions to ensure reproducible builds across all environments.
+# IMPORTANT: asyncpg is listed here but the DB URL must still use
+# postgresql+psycopg2:// for synchronous SQLAlchemy.  asyncpg is kept
+# because some optional async utilities import it at module load time.
+
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+asyncpg==0.29.0
+aiofiles==23.2.1
+python-dotenv==1.0.1
+boto3==1.34.100
+pydantic==2.7.1
+pydantic-settings==2.2.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+slowapi==0.1.9
+prometheus-fastapi-instrumentator==7.0.0
+requests==2.31.0
+python-multipart==0.0.9

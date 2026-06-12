@@ -1,0 +1,78 @@
+---
+# ansible/roles/cloudwatch_agent/tasks/main.yml
+#
+# Installs and configures the CloudWatch Agent on app EC2 instances.
+# This enables memory and disk metrics — CloudWatch does NOT collect
+# memory by default. Without this, the high-memory alarm cannot work.
+#
+# Applied to: app EC2 blue and green instances
+# Why: Memory is not a default CloudWatch metric on EC2. You must
+#      install the agent and configure it to send memory metrics.
+
+- name: Download CloudWatch Agent RPM
+  ansible.builtin.get_url:
+    url: "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm"
+    dest: /tmp/amazon-cloudwatch-agent.rpm
+    mode: "0644"
+  tags: [cloudwatch]
+
+- name: Install CloudWatch Agent
+  ansible.builtin.dnf:
+    name: /tmp/amazon-cloudwatch-agent.rpm
+    state: present
+    disable_gpg_check: true
+  become: true
+  tags: [cloudwatch]
+
+- name: Create CloudWatch Agent config directory
+  ansible.builtin.file:
+    path: /opt/aws/amazon-cloudwatch-agent/etc
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  tags: [cloudwatch]
+
+- name: Deploy CloudWatch Agent configuration
+  ansible.builtin.template:
+    src: cloudwatch-agent-config.json.j2
+    dest: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: restart cloudwatch agent
+  tags: [cloudwatch]
+
+- name: Start CloudWatch Agent using the wizard helper
+  ansible.builtin.command:
+    cmd: >
+      /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+      -a fetch-config
+      -m ec2
+      -s
+      -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+  become: true
+  tags: [cloudwatch]
+
+- name: Enable CloudWatch Agent to start on boot
+  ansible.builtin.systemd:
+    name: amazon-cloudwatch-agent
+    enabled: true
+    state: started
+  become: true
+  tags: [cloudwatch]
+
+- name: Verify CloudWatch Agent is running
+  ansible.builtin.command: >
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+    -a status
+  register: cw_status
+  changed_when: false
+  tags: [cloudwatch]
+
+- name: Print CloudWatch Agent status
+  ansible.builtin.debug:
+    msg: "{{ cw_status.stdout }}"
+  tags: [cloudwatch]

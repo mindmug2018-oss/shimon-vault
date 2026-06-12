@@ -1,0 +1,5 @@
+---
+# ansible/roles/monitoring_stack/defaults/main.yml
+
+grafana_admin_password: "changeme"   # override with -e grafana_admin_password=xxx
+monitoring_base_dir: /opt/shimonvault/monitoring

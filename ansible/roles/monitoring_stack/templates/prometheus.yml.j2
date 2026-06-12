@@ -1,0 +1,110 @@
+# ansible/roles/monitoring_stack/templates/prometheus.yml.j2
+#
+# Prometheus configuration for ShimonVault monitoring stack.
+# Uses EC2 service discovery — never static IPs.
+# IPs change every terraform apply. EC2 SD handles this automatically.
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    project: 'shimonvault'
+    environment: 'production'
+
+# Load alert rules
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+# Send alerts to Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+
+  # ── Prometheus itself ──────────────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── On-prem server node metrics (always reachable) ────────────────────────
+  - job_name: 'onprem-node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    relabel_configs:
+      - target_label: instance
+        replacement: 'proj-mgmt'
+
+  # ── On-prem Docker container metrics ─────────────────────────────────────
+  - job_name: 'onprem-cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    relabel_configs:
+      - target_label: instance
+        replacement: 'proj-mgmt'
+
+  # ── AWS EC2 nodes — dynamic discovery via EC2 tags ────────────────────────
+  # Discovers any running EC2 with tag Project=ShimonVault
+  # node_exporter must be running on each instance on port 9100
+  # Reachable via Tailscale mesh VPN
+  - job_name: 'ec2-nodes'
+    ec2_sd_configs:
+      - region: {{ aws_region }}
+        port: 9100
+        filters:
+          - name: tag:Project
+            values: [ShimonVault]
+          - name: instance-state-name
+            values: [running]
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance
+      - source_labels: [__meta_ec2_tag_Role]
+        target_label: role
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - source_labels: [__meta_ec2_private_ip]
+        target_label: private_ip
+
+  # ── FastAPI app /metrics — blackbox checks if app is UP ──────────────────
+  # node_down = EC2 unreachable. FastAPI down = app process dead on live instance.
+  # These are different failure modes — both must be monitored.
+  - job_name: 'fastapi-app'
+    ec2_sd_configs:
+      - region: {{ aws_region }}
+        port: 8000
+        filters:
+          - name: tag:Role
+            values: [app-blue, app-green]
+          - name: instance-state-name
+            values: [running]
+    metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance
+      - source_labels: [__meta_ec2_tag_Role]
+        target_label: role
+
+  # ── Blackbox exporter — probes FastAPI /health endpoint ──────────────────
+  # This detects FastAPI down independently of node_exporter
+  - job_name: 'blackbox-fastapi-health'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    ec2_sd_configs:
+      - region: {{ aws_region }}
+        port: 8000
+        filters:
+          - name: tag:Role
+            values: [app-blue, app-green]
+          - name: instance-state-name
+            values: [running]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+        replacement: 'http://${1}/health'
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance

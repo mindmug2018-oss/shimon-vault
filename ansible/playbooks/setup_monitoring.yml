@@ -1,0 +1,57 @@
+---
+# ansible/playbooks/setup_monitoring.yml
+#
+# Deploys the full monitoring stack on the on-prem proj-mgmt server.
+# Run this ONCE when first setting up, then again only if config changes.
+# The monitoring server is always on — it is NOT destroyed with terraform.
+#
+# Usage (run from ansible/ directory):
+#
+#   ansible-playbook playbooks/setup_monitoring.yml \
+#     -i "proj-mgmt.local," \
+#     -e "grafana_admin_password=your-grafana-password" \
+#     -e "aws_account_id=123456789012"
+#
+# The on-prem server must be reachable directly (not via bastion jump).
+# If running remotely, set ansible_host to the server's IP/hostname.
+
+- name: Deploy ShimonVault monitoring stack on-prem
+  hosts: all
+  gather_facts: true
+  become: true
+
+  vars:
+    # Pass these via -e at runtime:
+    # grafana_admin_password: set via -e
+    # aws_account_id: set via -e OR pulled automatically
+    aws_account_id: "{{ lookup('env', 'AWS_ACCOUNT_ID') | default(lookup('pipe', 'aws sts get-caller-identity --query Account --output text')) }}"
+
+  pre_tasks:
+    - name: Confirm target is the on-prem server
+      ansible.builtin.debug:
+        msg: "Deploying monitoring stack on {{ inventory_hostname }} ({{ ansible_host | default(ansible_hostname) }})"
+
+    - name: Ensure AWS credentials are available (needed for Prometheus EC2 SD)
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'AWS_ACCESS_KEY_ID') != ''
+          - lookup('env', 'AWS_SECRET_ACCESS_KEY') != ''
+        fail_msg: |
+          AWS credentials not found in environment.
+          Export AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before running.
+      tags: [always]
+
+  roles:
+    - role: monitoring_stack
+
+  post_tasks:
+    - name: Print access URLs
+      ansible.builtin.debug:
+        msg:
+          - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          - "Monitoring stack deployed successfully."
+          - "Prometheus:   http://{{ ansible_host | default('localhost') }}:9090"
+          - "Grafana:      http://{{ ansible_host | default('localhost') }}:3000"
+          - "Alertmanager: http://{{ ansible_host | default('localhost') }}:9093"
+          - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          - "Next: open Grafana and import dashboards from monitoring/grafana/dashboards/"

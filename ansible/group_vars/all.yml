@@ -1,0 +1,43 @@
+---
+# ansible/group_vars/all.yml
+#
+# Variables available to ALL hosts in the inventory.
+# Sensitive values (passwords, tokens) are NOT stored here —
+# they are passed at runtime via -e flags or pulled from
+# environment variables using lookup('env', '...')
+
+# ── Project identity ──────────────────────────────────────────────────────────
+project_name: shimonvault
+aws_region:   ap-northeast-2
+docker_hub_image: mindmug/shimonvault-app
+
+# ── Docker ─────────────────────────────────────────────────────────────────────
+docker_app_port: 8000
+docker_restart_policy: always
+
+# ── App configuration (non-sensitive) ─────────────────────────────────────────
+app_env_vars:
+  AWS_REGION:               "{{ aws_region }}"
+  S3_BUCKET_DOCS:           "{{ project_name }}-docs-{{ aws_account_id }}"
+  S3_BUCKET_REPORTS:        "{{ project_name }}-reports-{{ aws_account_id }}"
+  DYNAMODB_AUDIT_TABLE:     "{{ project_name }}-audit-log"
+  DYNAMODB_INCIDENTS_TABLE: "{{ project_name }}-incidents"
+  DYNAMODB_MEETINGS_TABLE:  "{{ project_name }}-meetings"
+  SNS_TOPIC_SECURITY_ALERT: "arn:aws:sns:{{ aws_region }}:{{ aws_account_id }}:{{ project_name }}-security-alert"
+  SNS_TOPIC_MEETING_REMINDERS: "arn:aws:sns:{{ aws_region }}:{{ aws_account_id }}:{{ project_name }}-meeting-reminders"
+  APP_SECURITY_GROUP_ID:    "{{ app_security_group_id | default('') }}"
+  NACL_ID:                  "{{ nacl_id | default('') }}"
+  MAX_FILE_SIZE_MB:         "50"
+
+# ── Sensitive values — injected at runtime, never committed ────────────────────
+# Pass these as extra vars:  ansible-playbook ... -e @secrets.yml
+# Or set environment variables and use lookup('env', ...)
+# app_sensitive_vars is merged with app_env_vars in the docker_app role
+app_sensitive_env_var_names:
+  - DB_HOST
+  - DB_PASSWORD
+  - READ_DB_HOST
+  - JWT_SECRET_KEY
+  - SLACK_WEBHOOK_URL
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID

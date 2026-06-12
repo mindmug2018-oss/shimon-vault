@@ -1,3 +1,5 @@
+# terraform/main.tf — Provider configuration and shared data sources
+
 terraform {
   required_version = ">= 1.5.0"
 
@@ -32,15 +34,16 @@ provider "aws" {
   }
 }
 
-# ─────────────────────────────────────────────
-# Data sources — always look up, never hardcode
-# ─────────────────────────────────────────────
+# ─── Shared data sources ──────────────────────────────────────────────────────
+# Declared ONCE here. All other .tf files reference these via:
+#   data.aws_caller_identity.current.account_id
+#   data.aws_region.current.name
+#   data.aws_ami.amazon_linux.id
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 # Latest Amazon Linux 2023 AMI (x86_64)
-# This automatically picks the newest AMI so you don't hardcode an AMI ID
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -57,10 +60,10 @@ data "aws_ami" "amazon_linux" {
 }
 
 locals {
-  account_id   = data.aws_caller_identity.current.account_id
-  region       = data.aws_region.current.name
-  project      = var.project_name
-  common_tags  = {
+  account_id  = data.aws_caller_identity.current.account_id
+  region      = data.aws_region.current.name
+  project     = var.project_name
+  common_tags = {
     Project = var.project_name
   }
 }

@@ -1,0 +1,8 @@
+---
+# ansible/roles/cloudwatch_agent/handlers/main.yml
+
+- name: restart cloudwatch agent
+  ansible.builtin.systemd:
+    name: amazon-cloudwatch-agent
+    state: restarted
+  become: true

@@ -1,0 +1,22 @@
+---
+# ansible/roles/monitoring_stack/handlers/main.yml
+
+- name: restart monitoring stack
+  ansible.builtin.command:
+    cmd: docker compose restart
+    chdir: /opt/shimonvault/monitoring
+  become: true
+
+- name: reload prometheus
+  ansible.builtin.uri:
+    url: "http://localhost:9090/-/reload"
+    method: POST
+    status_code: 200
+  ignore_errors: true   # Prometheus might not be up yet on first run
+
+- name: reload alertmanager
+  ansible.builtin.uri:
+    url: "http://localhost:9093/-/reload"
+    method: POST
+    status_code: 200
+  ignore_errors: true

@@ -1,0 +1,170 @@
+---
+# ansible/roles/monitoring_stack/tasks/main.yml
+#
+# Deploys the full monitoring stack on the on-prem Linux server (proj-mgmt).
+# Runs: Prometheus, Grafana, Alertmanager, node_exporter, cAdvisor,
+#       and the Telegram relay service — all via Docker Compose.
+#
+# Applied to: on-prem Linux server (proj-mgmt)
+# This server is always running (not destroyed with terraform).
+# Connected to AWS via Tailscale mesh VPN.
+
+- name: Install Docker and Docker Compose plugin (if not present)
+  ansible.builtin.package:
+    name:
+      - docker.io
+      - docker-compose-plugin
+    state: present
+  become: true
+  tags: [monitoring, docker]
+
+- name: Start Docker service
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  become: true
+  tags: [monitoring, docker]
+
+- name: Create monitoring directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  loop:
+    - /opt/shimonvault/monitoring
+    - /opt/shimonvault/monitoring/prometheus
+    - /opt/shimonvault/monitoring/alertmanager
+    - /opt/shimonvault/monitoring/grafana/dashboards
+    - /opt/shimonvault/monitoring/grafana/provisioning/datasources
+    - /opt/shimonvault/monitoring/grafana/provisioning/dashboards
+    - /opt/shimonvault/monitoring/telegram_relay
+    - /opt/shimonvault/monitoring/data/prometheus
+    - /opt/shimonvault/monitoring/data/grafana
+  become: true
+  tags: [monitoring]
+
+- name: Deploy docker-compose.yml for monitoring stack
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/shimonvault/monitoring/docker-compose.yml
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: restart monitoring stack
+  tags: [monitoring]
+
+- name: Deploy Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /opt/shimonvault/monitoring/prometheus/prometheus.yml
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: reload prometheus
+  tags: [monitoring, prometheus]
+
+- name: Deploy Prometheus alert rules
+  ansible.builtin.template:
+    src: alert_rules.yml.j2
+    dest: /opt/shimonvault/monitoring/prometheus/alert_rules.yml
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: reload prometheus
+  tags: [monitoring, prometheus]
+
+- name: Deploy Alertmanager configuration
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /opt/shimonvault/monitoring/alertmanager/alertmanager.yml
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: reload alertmanager
+  tags: [monitoring, alertmanager]
+
+- name: Deploy Grafana datasources provisioning
+  ansible.builtin.template:
+    src: grafana-datasources.yml.j2
+    dest: /opt/shimonvault/monitoring/grafana/provisioning/datasources/datasources.yml
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: restart monitoring stack
+  tags: [monitoring, grafana]
+
+- name: Deploy Grafana dashboard provisioning config
+  ansible.builtin.template:
+    src: grafana-dashboards-provisioning.yml.j2
+    dest: /opt/shimonvault/monitoring/grafana/provisioning/dashboards/dashboards.yml
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  tags: [monitoring, grafana]
+
+- name: Deploy Telegram relay script
+  ansible.builtin.template:
+    src: telegram_relay.py.j2
+    dest: /opt/shimonvault/monitoring/telegram_relay/relay.py
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: restart monitoring stack
+  tags: [monitoring, telegram]
+
+- name: Deploy Telegram relay Dockerfile
+  ansible.builtin.copy:
+    content: |
+      FROM python:3.12-slim
+      RUN pip install --no-cache-dir fastapi uvicorn requests
+      WORKDIR /app
+      COPY relay.py .
+      EXPOSE 8001
+      CMD ["uvicorn", "relay:app", "--host", "0.0.0.0", "--port", "8001"]
+    dest: /opt/shimonvault/monitoring/telegram_relay/Dockerfile
+    owner: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  tags: [monitoring, telegram]
+
+- name: Start monitoring stack with Docker Compose
+  ansible.builtin.command:
+    cmd: docker compose up -d --build
+    chdir: /opt/shimonvault/monitoring
+  become: true
+  register: compose_result
+  changed_when: "'Started' in compose_result.stdout or 'Created' in compose_result.stdout"
+  tags: [monitoring]
+
+- name: Wait for Prometheus to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:9090/-/ready"
+    method: GET
+    status_code: 200
+  register: prom_ready
+  until: prom_ready.status == 200
+  retries: 12
+  delay: 5
+  tags: [monitoring, prometheus]
+
+- name: Wait for Grafana to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:3000/api/health"
+    method: GET
+    status_code: 200
+  register: grafana_ready
+  until: grafana_ready.status == 200
+  retries: 12
+  delay: 5
+  tags: [monitoring, grafana]
+
+- name: Print monitoring stack URLs
+  ansible.builtin.debug:
+    msg:
+      - "Prometheus: http://{{ ansible_host }}:9090"
+      - "Grafana:    http://{{ ansible_host }}:3000  (admin / {{ grafana_admin_password }})"
+      - "Alertmanager: http://{{ ansible_host }}:9093"
+  tags: [monitoring]

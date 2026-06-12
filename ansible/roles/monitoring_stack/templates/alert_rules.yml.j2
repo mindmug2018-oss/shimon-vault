@@ -1,0 +1,101 @@
+# ansible/roles/monitoring_stack/templates/alert_rules.yml.j2
+#
+# Prometheus alert rules for ShimonVault.
+# All four alert types required by the rubric are defined here.
+# Each alert has a matching recovery (resolved) notification.
+
+groups:
+  - name: shimonvault-infrastructure
+    rules:
+
+      # ── 1. FastAPI Down ───────────────────────────────────────────────────
+      # Detected by blackbox prober: the /health endpoint stops returning 2xx.
+      # This is different from node down — EC2 is up but the app process died.
+      - alert: FastAPIDown
+        expr: probe_success{job="blackbox-fastapi-health"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FastAPI is DOWN on {{ $labels.instance }}"
+          description: |
+            FastAPI DOWN — ShimonVault
+            Instance: {{ $labels.instance }}
+            Endpoint: health check failed (no response or non-200)
+            Action: ALB health check removing instance from rotation.
+                    Investigate container status via bastion SSH.
+
+      # ── 2. High CPU ────────────────────────────────────────────────────────
+      # Uses node_exporter metric. CloudWatch also has this alarm (belt and suspenders).
+      - alert: HighCPU
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on {{ $labels.instance }}"
+          description: |
+            HIGH CPU — ShimonVault
+            Instance: {{ $labels.instance }}
+            CPU: {{ $value | printf "%.1f" }}% (threshold: 80%)
+            Action: ASG scaling out — new instance launching.
+
+      # ── 3. High Memory ─────────────────────────────────────────────────────
+      # Requires CloudWatch Agent to be installed (ansible/roles/cloudwatch_agent).
+      # Without the agent, mem_used_percent metric does not exist.
+      - alert: HighMemory
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 15
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: |
+            HIGH MEMORY — ShimonVault
+            Instance: {{ $labels.instance }}
+            Memory available: {{ $value | printf "%.1f" }}% remaining (threshold: 15% free = 85% used)
+            Action: Monitor — scale out if sustained.
+
+      # ── 4. Node Down ────────────────────────────────────────────────────────
+      # node_exporter stops reporting → EC2 instance is unreachable.
+      - alert: NodeDown
+        expr: up{job="ec2-nodes"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node is DOWN: {{ $labels.instance }}"
+          description: |
+            NODE DOWN — ShimonVault
+            Instance: {{ $labels.instance }}
+            Status check: FAILED (node_exporter unreachable)
+            Action: ALB stopped routing to instance.
+                    Lambda terminating unhealthy instance.
+                    ASG launching replacement.
+
+      # ── 5. High Request Rate (DDoS indicator) ─────────────────────────────
+      - alert: HighRequestRate
+        expr: sum(rate(http_requests_total{job="fastapi-app"}[1m])) > 100
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request rate detected"
+          description: |
+            TRAFFIC FLOOD DETECTED — ShimonVault
+            Request rate: {{ $value | printf "%.0f" }} req/sec (threshold: 100)
+            Action: ALB absorbing traffic, ASG scaling out.
+
+      # ── 6. Login Failure Spike (credential stuffing) ──────────────────────
+      - alert: LoginFailureSpike
+        expr: increase(shimonvault_login_failures_total[5m]) > 20
+        for: 0m   # fire immediately — don't wait
+        labels:
+          severity: critical
+        annotations:
+          summary: "Login failure spike — possible credential stuffing"
+          description: |
+            CREDENTIAL STUFFING SUSPECTED — ShimonVault
+            Failed logins: {{ $value | printf "%.0f" }} in 5 minutes (threshold: 20)
+            Action: Investigating — Lambda block_ip will fire if CloudWatch alarm also triggers.

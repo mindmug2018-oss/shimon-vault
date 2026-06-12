@@ -1,0 +1,21 @@
+# shimon-vault/app/.dockerignore
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+.env
+.env.*
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+tests/
+*.log
+.git/
+.gitignore
