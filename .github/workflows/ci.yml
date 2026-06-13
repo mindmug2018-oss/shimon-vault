@@ -33,14 +33,20 @@ jobs:
           pip install pytest pytest-cov flake8
 
       # ── 4. Lint with flake8 ─────────────────────────────────────────────────
-      # Checks for syntax errors and obvious bugs.
-      # --max-line-length=120: slightly relaxed (default is 79, too strict)
-      # --extend-ignore=E501: ignore lines that are a tiny bit over
+      # --max-line-length=120: relaxed from the default 79.
+      # --extend-ignore: E501 (long lines) + W503 (line break before operator)
+      #   PLUS the "aligned column" whitespace rules so that lining up your
+      #   '=' signs (a style you use a lot) never blocks the pipeline again:
+      #     E221 multiple spaces before operator
+      #     E222 multiple spaces after operator
+      #     E241 multiple spaces after comma
+      #     E271/E272 multiple spaces around keywords
+      #   If you prefer strict PEP 8 instead, delete E221,E222,E241,E271,E272.
       - name: Lint with flake8
         run: |
           flake8 app/ \
             --max-line-length=120 \
-            --extend-ignore=E501,W503 \
+            --extend-ignore=E501,W503,E221,E222,E241,E271,E272 \
             --exclude=app/.venv,app/venv \
             --count --statistics
         continue-on-error: false   # lint failure blocks the pipeline

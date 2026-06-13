@@ -3,13 +3,13 @@
 """
 routers/meetings_router.py — ShimonMeet scheduling endpoints
 
-POST   /meetings/create       → create meeting, schedule EventBridge rule (Week 3)
-GET    /meetings/list         → list upcoming meetings for current user
-GET    /meetings/{id}         → get meeting details + join token
-PUT    /meetings/{id}         → update meeting
-DELETE /meetings/{id}         → cancel meeting
-POST   /meetings/{id}/join    → record attendance, validate join token
-GET    /meetings/{id}/archive → get past meeting attendance record
+POST   /meetings/create       -> create meeting, schedule EventBridge rule (Week 3)
+GET    /meetings/list         -> list upcoming meetings for current user
+GET    /meetings/{id}         -> get meeting details + join token
+PUT    /meetings/{id}         -> update meeting
+DELETE /meetings/{id}         -> cancel meeting
+POST   /meetings/{id}/join    -> record attendance, validate join token
+GET    /meetings/{id}/archive -> get past meeting attendance record
 """
 
 import secrets
@@ -31,23 +31,23 @@ router = APIRouter()
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class MeetingCreate(BaseModel):
-    title:        str
-    description:  Optional[str] = None
+    title: str
+    description: Optional[str] = None
     scheduled_at: datetime       # ISO-8601 format: "2026-06-03T14:00:00Z"
-    ends_at:      datetime
+    ends_at: datetime
     participant_ids: List[str] = []
 
 
 class MeetingOut(BaseModel):
-    id:           str
-    title:        str
-    description:  Optional[str]
+    id: str
+    title: str
+    description: Optional[str]
     organizer_id: str
-    join_token:   str
-    status:       str
+    join_token: str
+    status: str
     scheduled_at: str
-    ends_at:      str
-    created_at:   str
+    ends_at: str
+    created_at: str
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ class MeetingOut(BaseModel):
 @router.post("/create", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
 def create_meeting(
     req: MeetingCreate,
-    db:  Session = Depends(get_write_db),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.EDITOR)),
 ):
     """
@@ -126,7 +126,7 @@ def list_meetings(
 @router.get("/{meeting_id}", response_model=MeetingOut)
 def get_meeting(
     meeting_id: str,
-    db:         Session = Depends(get_read_db),
+    db: Session = Depends(get_read_db),
     current_user: User = Depends(get_current_user),
 ):
     meeting = _get_or_404(db, meeting_id)
@@ -137,18 +137,18 @@ def get_meeting(
 @router.put("/{meeting_id}", response_model=MeetingOut)
 def update_meeting(
     meeting_id: str,
-    req:        MeetingCreate,
-    db:         Session = Depends(get_write_db),
+    req: MeetingCreate,
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(get_current_user),
 ):
     meeting = _get_or_404(db, meeting_id)
     if str(meeting.organizer_id) != str(current_user.id) and current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Only the organizer or admin can update")
 
-    meeting.title       = req.title
+    meeting.title = req.title
     meeting.description = req.description
     meeting.scheduled_at = req.scheduled_at
-    meeting.ends_at     = req.ends_at
+    meeting.ends_at = req.ends_at
     db.commit()
     db.refresh(meeting)
     return _meeting_to_out(meeting)
@@ -157,7 +157,7 @@ def update_meeting(
 @router.delete("/{meeting_id}")
 def cancel_meeting(
     meeting_id: str,
-    db:         Session = Depends(get_write_db),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(get_current_user),
 ):
     meeting = _get_or_404(db, meeting_id)
@@ -179,9 +179,9 @@ def cancel_meeting(
 @router.post("/{meeting_id}/join")
 def join_meeting(
     meeting_id: str,
-    request:    Request,
-    token:      str,
-    db:         Session = Depends(get_write_db),
+    request: Request,
+    token: str,
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -221,10 +221,15 @@ def join_meeting(
         Participant.user_id == current_user.id,
     ).first()
     if participant:
-        participant.attended  = True
+        participant.attended = True
         participant.joined_at = now
     else:
-        db.add(Participant(meeting_id=meeting.id, user_id=current_user.id, attended=True, joined_at=now))
+        db.add(Participant(
+            meeting_id=meeting.id,
+            user_id=current_user.id,
+            attended=True,
+            joined_at=now,
+        ))
 
     db.commit()
 
@@ -242,21 +247,21 @@ def join_meeting(
 @router.get("/{meeting_id}/archive")
 def get_meeting_archive(
     meeting_id: str,
-    db:         Session = Depends(get_read_db),
+    db: Session = Depends(get_read_db),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.EDITOR)),
 ):
     """Get past meeting attendance. Admin/Editor only."""
     meeting = _get_or_404(db, meeting_id)
     participants = db.query(Participant).filter(Participant.meeting_id == meeting_id).all()
     return {
-        "meeting_id":    meeting_id,
-        "title":         meeting.title,
+        "meeting_id": meeting_id,
+        "title": meeting.title,
         "attended_count": sum(1 for p in participants if p.attended),
-        "total_invited":  len(participants),
+        "total_invited": len(participants),
         "participants": [
             {
-                "user_id":   str(p.user_id),
-                "attended":  p.attended,
+                "user_id": str(p.user_id),
+                "attended": p.attended,
                 "joined_at": p.joined_at.isoformat() if p.joined_at else None,
             }
             for p in participants

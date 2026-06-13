@@ -21,6 +21,7 @@ import config
 # Lazy-initialized S3 client
 _s3 = None
 
+
 def _get_s3():
     global _s3
     if _s3 is None:
@@ -29,10 +30,10 @@ def _get_s3():
 
 
 def upload_to_s3(
-    file_bytes:   bytes,
-    filename:     str,
+    file_bytes: bytes,
+    filename: str,
     content_type: str,
-    owner_id:     str,
+    owner_id: str,
 ) -> str:
     """
     Upload a file to S3.
@@ -45,8 +46,8 @@ def upload_to_s3(
     rules per-user if needed, and so keys are predictable in the audit log.
     """
     date_prefix = datetime.utcnow().strftime("%Y-%m-%d")
-    unique_id   = str(uuid.uuid4())[:8]
-    s3_key      = f"{owner_id}/{date_prefix}/{unique_id}-{filename}"
+    unique_id = str(uuid.uuid4())[:8]
+    s3_key = f"{owner_id}/{date_prefix}/{unique_id}-{filename}"
 
     _get_s3().put_object(
         Bucket=config.S3_BUCKET_DOCS,
@@ -106,10 +107,10 @@ def list_object_versions(s3_key: str) -> list:
         versions = response.get("Versions", [])
         return [
             {
-                "version_id":   v["VersionId"],
+                "version_id": v["VersionId"],
                 "last_modified": v["LastModified"].isoformat(),
-                "size_bytes":   v["Size"],
-                "is_latest":    v["IsLatest"],
+                "size_bytes": v["Size"],
+                "is_latest": v["IsLatest"],
             }
             for v in versions
         ]

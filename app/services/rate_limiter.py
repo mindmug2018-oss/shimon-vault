@@ -16,7 +16,6 @@ Why this exists alongside slowapi?
 import time
 from collections import defaultdict
 from threading import Lock
-from typing import Optional
 
 from services.audit_service import write_security_incident
 from services.notify_service import notify_all
@@ -24,14 +23,14 @@ from services.notify_service import notify_all
 # Thread-safe counters
 _lock = Lock()
 
-# Structure: { "key": [(timestamp, count), ...] }
+# Structure: { "key": [timestamp, ...] }
 _windows: dict[str, list] = defaultdict(list)
 
 # Thresholds
 EXFILTRATION_WINDOW_SECONDS = 60
-EXFILTRATION_THRESHOLD      = 10   # downloads within window = exfiltration attempt
+EXFILTRATION_THRESHOLD = 10   # downloads within window = exfiltration attempt
 LOGIN_FAILURE_WINDOW_SECONDS = 300  # 5 minutes
-LOGIN_FAILURE_THRESHOLD      = 20   # failures in 5 min = credential stuffing
+LOGIN_FAILURE_THRESHOLD = 20   # failures in 5 min = credential stuffing
 
 
 def _clean_window(key: str, window_seconds: int) -> list:
@@ -75,7 +74,7 @@ def check_download_rate(ip: str, user_id: str) -> bool:
                 user_id=user_id,
             )
             notify_all(
-                f"📁 *EXFILTRATION ATTEMPT — ShimonVault*\n"
+                f"*EXFILTRATION ATTEMPT -- ShimonVault*\n"
                 f"Type: Bulk File Download\n"
                 f"IP: `{ip}`\n"
                 f"Files attempted: {count} in {EXFILTRATION_WINDOW_SECONDS}s\n"
@@ -89,13 +88,13 @@ def check_download_rate(ip: str, user_id: str) -> bool:
 def check_login_failure_rate(ip: str, email: str) -> dict:
     """
     Record a login failure. Returns a dict with:
-      count: int        — total failures in the window
-      alert: bool       — whether to send a Slack alert (crosses alert threshold)
-      block: bool       — whether to invoke the block_ip Lambda
+      count: int   — total failures in the window
+      alert: bool  — whether to send a Slack alert (crosses alert threshold)
+      block: bool  — whether to invoke the block_ip Lambda
 
     Thresholds:
-      20 failures in 5 min → alert
-      50 failures in 5 min → block
+      20 failures in 5 min -> alert
+      50 failures in 5 min -> block
     """
     key = f"login_fail:{ip}"
     _record_event(key)

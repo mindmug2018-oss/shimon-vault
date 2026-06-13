@@ -30,6 +30,7 @@ from models import AuditEventType
 # (boto3 reads AWS credentials from the EC2 instance profile automatically)
 _dynamodb = None
 
+
 def _get_table():
     global _dynamodb
     if _dynamodb is None:
@@ -66,15 +67,19 @@ def write_event(
         table = _get_table()
         now = datetime.now(timezone.utc).isoformat()
         item = {
-            "id":         str(uuid.uuid4()),
+            "id": str(uuid.uuid4()),
             "created_at": now,
             "event_type": event_type.value,
-            "severity":   severity,
+            "severity": severity,
         }
-        if ip_address: item["ip_address"] = ip_address
-        if resource:   item["resource"]   = resource
-        if detail:     item["detail"]     = detail
-        if user_id:    item["user_id"]    = user_id
+        if ip_address:
+            item["ip_address"] = ip_address
+        if resource:
+            item["resource"] = resource
+        if detail:
+            item["detail"] = detail
+        if user_id:
+            item["user_id"] = user_id
 
         table.put_item(Item=item)
         return True
@@ -105,13 +110,13 @@ def write_security_incident(
         now = datetime.now(timezone.utc).isoformat()
 
         table.put_item(Item={
-            "id":            str(uuid.uuid4()),
-            "created_at":    now,
+            "id": str(uuid.uuid4()),
+            "created_at": now,
             "incident_type": incident_type,
-            "ip_address":    ip_address,
-            "detail":        json.dumps(detail),
-            "status":        "open",
-            "user_id":       user_id or "unknown",
+            "ip_address": ip_address,
+            "detail": json.dumps(detail),
+            "status": "open",
+            "user_id": user_id or "unknown",
         })
 
         # Also write to audit-log for the unified feed

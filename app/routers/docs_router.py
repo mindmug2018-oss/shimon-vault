@@ -3,18 +3,18 @@
 """
 routers/docs_router.py — SecureDocs file vault endpoints
 
-POST   /docs/upload          → upload file to S3, write metadata to RDS
-GET    /docs/list             → list files the current user can access
-GET    /docs/download/{id}   → generate 15-minute pre-signed S3 URL
-DELETE /docs/{id}            → soft-delete (marks as deleted, never removes)
-GET    /docs/{id}/versions   → list previous versions of a document
+POST   /docs/upload          -> upload file to S3, write metadata to RDS
+GET    /docs/list             -> list files the current user can access
+GET    /docs/download/{id}   -> generate 15-minute pre-signed S3 URL
+DELETE /docs/{id}            -> soft-delete (marks as deleted, never removes)
+GET    /docs/{id}/versions   -> list previous versions of a document
 
 Security:
   - Viewers can only see and download their own files
   - Editors can upload and see all non-admin files
   - Admins can see and delete everything
   - Downloads are rate-limited: 10 requests per 60 seconds per IP
-  - Broken access control: accessing another user's file → 403 + incident log
+  - Broken access control: accessing another user's file -> 403 + incident log
 """
 
 import json
@@ -31,7 +31,7 @@ import config
 from auth import get_current_user, require_role
 from database import get_read_db, get_write_db
 from models import AuditEventType, Document, DocumentStatus, User, UserRole
-from services.audit_service import write_event, write_security_incident
+from services.audit_service import write_event
 from services.s3_service import delete_s3_file, generate_presigned_url, upload_to_s3
 
 router = APIRouter()
@@ -44,13 +44,13 @@ _download_counts: dict[str, list] = {}
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class DocumentOut(BaseModel):
-    id:           str
-    filename:     str
+    id: str
+    filename: str
     content_type: str
-    size_bytes:   int
-    version:      int
-    owner_id:     str
-    created_at:   str
+    size_bytes: int
+    version: int
+    owner_id: str
+    created_at: str
 
     class Config:
         from_attributes = True
@@ -60,10 +60,10 @@ class DocumentOut(BaseModel):
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_document(
-    request:      Request,
-    file:         UploadFile = File(...),
-    description:  Optional[str] = Form(None),
-    db:           Session = Depends(get_write_db),
+    request: Request,
+    file: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.EDITOR)),
 ):
     """
@@ -103,7 +103,7 @@ async def upload_document(
 
 @router.get("/list", response_model=List[DocumentOut])
 def list_documents(
-    db:           Session = Depends(get_read_db),
+    db: Session = Depends(get_read_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -134,9 +134,9 @@ def list_documents(
 @router.get("/download/{doc_id}")
 @limiter.limit(config.DOWNLOAD_RATE_LIMIT)
 def download_document(
-    request:      Request,
-    doc_id:       str,
-    db:           Session = Depends(get_read_db),
+    request: Request,
+    doc_id: str,
+    db: Session = Depends(get_read_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -186,8 +186,8 @@ def download_document(
 
 @router.delete("/{doc_id}")
 def delete_document(
-    doc_id:       str,
-    db:           Session = Depends(get_write_db),
+    doc_id: str,
+    db: Session = Depends(get_write_db),
     current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """
@@ -222,8 +222,8 @@ def delete_document(
 
 @router.get("/{doc_id}/versions")
 def get_document_versions(
-    doc_id:       str,
-    db:           Session = Depends(get_read_db),
+    doc_id: str,
+    db: Session = Depends(get_read_db),
     current_user: User = Depends(get_current_user),
 ):
     """List all versions of a document."""

@@ -93,12 +93,12 @@ services:
   telegram_relay:
     build: ./telegram_relay
     container_name: shimonvault-telegram-relay
-    restart: unless-stopped
     ports:
       - "8001:8001"
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    restart: always
 
   portainer:
     image: portainer/portainer-ce:latest
@@ -107,7 +107,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      DOCKER_HOST: "tcp://100.105.32.26:2376"
+      DOCKER_HOST: "tcp://100.106.241.40:2376"
     volumes:
       - portainer_data:/data
       - ./docker-certs/ca.pem:/certs/ca.pem:ro
@@ -118,7 +118,7 @@ services:
       --tlscacert=/certs/ca.pem
       --tlscert=/certs/cert.pem
       --tlskey=/certs/key.pem
-      --host tcp://100.105.32.26:2376
+      --host tcp://100.106.241.40:2376
 
 volumes:
   prometheus_data:

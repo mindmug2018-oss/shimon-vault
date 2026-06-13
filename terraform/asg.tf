@@ -1,4 +1,31 @@
 # terraform/asg.tf
+#
+# OPTION 1 CHANGE — the Auto Scaling Group is now a STANDALONE scale-out demo,
+# fully decoupled from the blue/green production path.
+#
+# What changed and why:
+#   1. Removed `target_group_arns = [aws_lb_target_group.blue.arn]`.
+#      Previously the ASG registered its instance into the BLUE target group,
+#      duplicating the standalone blue instance (two instances both serving
+#      "blue") and making "retire blue" impossible — the ASG would always keep
+#      one instance alive in blue. The blue/green pair (app_ec2_blue/green.tf)
+#      is now the only thing in the ALB.
+#   2. health_check_type changed "ELB" → "EC2". An ELB health check requires
+#      membership in a target group; since the ASG is no longer in one, it now
+#      uses plain EC2 status checks instead.
+#   3. min_size / desired_capacity set to 0 so the ASG costs NOTHING at rest.
+#      It still exists (launch template, scaling policies, CPU alarms) so it's
+#      fully demonstrable for the rubric.
+#
+# How to run the auto-scaling demo (ACT 5):
+#   aws autoscaling set-desired-capacity \
+#     --auto-scaling-group-name shimonvault-asg --desired-capacity 1
+#   # then SSH into the ASG instance via the bastion and generate CPU load, e.g.
+#   #   sudo dnf install -y stress-ng && stress-ng --cpu 2 --timeout 300s
+#   # CPUUtilization > 80% for 2 min → high_cpu_asg alarm → scale_out → 2 instances
+#   # load stops → low_cpu_asg alarm → scale_in → back down
+# (Want the load to flow through the ALB instead of stress-ng? Send me
+#  security_groups.tf and I'll add a dedicated listener for the ASG.)
 
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.project_name}-app-"
@@ -81,18 +108,17 @@ resource "aws_launch_template" "app" {
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project_name}-asg"
   vpc_zone_identifier = [aws_subnet.private.id]
-  min_size            = 1
+  min_size            = 0   # idle at rest — costs nothing until you demo it
   max_size            = 2
-  desired_capacity    = 1
+  desired_capacity    = 0   # bump to 1 to start the scale-out demo
 
   launch_template {
     id      = aws_launch_template.app.id
     version = "$Latest"
   }
 
-  target_group_arns = [aws_lb_target_group.blue.arn]
-
-  health_check_type         = "ELB"
+  # NOT in the blue target group anymore — standalone scale-out demo only.
+  health_check_type         = "EC2"
   health_check_grace_period = 300
 
   tag {

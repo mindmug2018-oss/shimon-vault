@@ -4,11 +4,11 @@
 auth.py — ShimonVault authentication and authorization
 
 Provides:
-  create_access_token(data)   → creates a signed JWT
-  get_current_user(token)     → FastAPI dependency: decodes JWT, returns User
-  require_role(*roles)        → decorator: blocks request if user role not in list
-  hash_password(plain)        → bcrypt hash
-  verify_password(plain, hash)→ bcrypt verify
+  create_access_token(data)    → creates a signed JWT
+  get_current_user(token)      → FastAPI dependency: decodes JWT, returns User
+  require_role(*roles)         → dependency factory: blocks request if role not allowed
+  hash_password(plain)         → bcrypt hash
+  verify_password(plain, hash) → bcrypt verify
 
 How JWTs work (simple explanation):
   1. User sends correct email + password to POST /auth/login
@@ -20,8 +20,9 @@ How JWTs work (simple explanation):
      No database lookup needed on every request — the token IS the credential
 """
 
+import hashlib
+import uuid as _uuid
 from datetime import datetime, timedelta, timezone
-from functools import wraps
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -39,21 +40,22 @@ from models import User, UserRole
 # Never use MD5 or SHA-256 for passwords — they are too fast.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+
 def hash_password(plain: str) -> str:
-    # bcrypt hard limit is 72 bytes. Truncate to avoid ValueError.
-    # SHA-256 the password first so long passwords still get full entropy.
-    import hashlib
+    # bcrypt hard limit is 72 bytes. SHA-256 the password first so long
+    # passwords still get full entropy without truncation.
     truncated = hashlib.sha256(plain.encode()).hexdigest()
     return pwd_context.hash(truncated)
 
+
 def verify_password(plain: str, hashed: str) -> bool:
-    import hashlib
     truncated = hashlib.sha256(plain.encode()).hexdigest()
     return pwd_context.verify(truncated, hashed)
 
 
 # ─── JWT ─────────────────────────────────────────────────────────────────────
 bearer_scheme = HTTPBearer()
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
@@ -96,7 +98,6 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    import uuid as _uuid
     user = db.query(User).filter(User.id == _uuid.UUID(user_id)).first()
     if user is None or not user.is_active or user.suspended:
         raise credentials_exception
@@ -117,7 +118,7 @@ def require_role(*allowed_roles: UserRole):
       ):
           ...
 
-    This will return HTTP 403 Forbidden if the user's role is not in allowed_roles.
+    Returns HTTP 403 Forbidden if the user's role is not in allowed_roles.
     The audit log is written by the middleware, not here.
     """
     def dependency(current_user: User = Depends(get_current_user)) -> User:

@@ -3,18 +3,16 @@
 """
 routers/audit_router.py — AuditStream live feed
 
-GET /audit/feed         → last 100 audit events (all users for admin, own for viewer)
-GET /audit/incidents    → open security incidents (admin only)
-GET /audit/my-activity  → current user's own activity log
+GET /audit/feed         -> last 100 audit events (all users for admin, own for viewer)
+GET /audit/incidents    -> open security incidents (admin only)
+GET /audit/my-activity  -> current user's own activity log
 
 These endpoints feed the Grafana JSON API plugin for the live dashboard.
 """
 
-from typing import List, Optional
-
 import boto3
 from boto3.dynamodb.conditions import Attr
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 import config
 from auth import get_current_user, require_role

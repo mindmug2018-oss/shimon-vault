@@ -2,8 +2,18 @@
 # scripts/deploy.sh
 # Run at the START of each work session.
 # Usage: bash scripts/deploy.sh
+#
+# To ALSO trigger the GitHub Actions deploy pipeline at the end (opt-in):
+#   SHIP=true bash scripts/deploy.sh
+# (Leave it off for a normal session bring-up — see the note at step 14.)
 
 set -e
+# pipefail: without this, a command like `terraform apply ... | tail -30` would
+# report SUCCESS even when apply FAILED (the pipe's exit code is tail's, not
+# terraform's), and the script would keep running into broken steps. With
+# pipefail, a failed apply stops the script immediately. All the other pipes
+# below are guarded with `|| true`, so they are unaffected.
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -21,8 +31,10 @@ echo "✅ Init complete"
 echo ""
 
 # ── 2. Terraform apply ────────────────────────────────────────────────────────
+# -input=false: never pause for an interactive prompt. If a required variable is
+# missing from terraform.tfvars, fail fast with a clear message instead of hanging.
 echo "2️⃣  terraform apply (this takes ~10-15 min for RDS)..."
-terraform apply -auto-approve 2>&1 | tail -30
+terraform apply -auto-approve -input=false 2>&1 | tail -30
 echo ""
 
 # ── 3. Generate .env ──────────────────────────────────────────────────────────
@@ -57,10 +69,10 @@ echo "   Blue EC2:   $BLUE_IP"
 echo ""
 
 # ── 6. Wait for healthy ───────────────────────────────────────────────────────
-echo "5️⃣  Waiting for app to become healthy (up to 10 minutes)..."
+echo "5️⃣  Waiting for app to become healthy (up to 4 minutes)..."
 echo ""
 
-MAX_WAIT=600
+MAX_WAIT=240
 INTERVAL=20
 ELAPSED=0
 HEALTHY=false
@@ -169,14 +181,14 @@ bash "$REPO_ROOT/scripts/setup_replica.sh" && \
     echo "   ⚠️  Replication setup failed — run manually: bash scripts/setup_replica.sh"
 echo ""
 
-# ── 11. Run Ansible verify ────────────────────────────────────────────────────
+# ── 12. Run Ansible verify ────────────────────────────────────────────────────
 echo "🔟  Running Ansible stack verification..."
 cd "$ANSIBLE_DIR"
 ansible-playbook playbooks/verify_stack.yml 2>/dev/null | \
     grep -E "(PLAY|TASK|ok:|fatal:|✅|❌|RECAP)" || true
 echo ""
 
-# ── 12. Fetch Docker TLS certs and update Portainer ──────────────────────────
+# ── 13. Fetch Docker TLS certs and update Portainer ──────────────────────────
 echo "1️⃣1️⃣  Fetching Docker TLS certs → updating Portainer..."
 if [ "$BLUE_IP" != "unknown" ]; then
     bash "$REPO_ROOT/scripts/fetch_docker_certs.sh" "$BASTION_IP" "$BLUE_IP" && \
@@ -187,7 +199,7 @@ else
 fi
 echo ""
 
-# ── 13. Reload Prometheus ─────────────────────────────────────────────────────
+# ── 14. Reload Prometheus ─────────────────────────────────────────────────────
 echo "1️⃣2️⃣  Reloading Prometheus..."
 curl -s -X POST http://localhost:9090/-/reload 2>/dev/null && \
     echo "   ✅ Prometheus reloaded" || \
@@ -206,3 +218,25 @@ echo ""
 echo "📋 Terraform outputs:"
 cd "$TF_DIR"
 terraform output
+echo ""
+
+# ── 15. (OPT-IN) Trigger the GitHub Actions deploy pipeline ───────────────────
+# This is OFF by default. deploy.sh already ran `terraform apply` locally (blue);
+# the CD pipeline runs its OWN `terraform apply` (green) on the SAME remote state.
+# Firing both in one go gives you blue AND green running at once (free-tier burn),
+# and the next plain deploy.sh would then tear green back down. So only enable
+# this when you actually want to roll out a NEW app version on top of the infra:
+#   SHIP=true bash scripts/deploy.sh
+# (For day-to-day code deploys, prefer:  bash scripts/ship.sh "your message")
+if [ "${SHIP:-false}" = "true" ]; then
+    echo ""
+    echo "🚢  SHIP=true → triggering GitHub Actions CD pipeline..."
+    cd "$REPO_ROOT"
+    if command -v gh >/dev/null 2>&1; then
+        gh workflow run cd.yml --ref main && \
+            echo "   ✅ Pipeline triggered → https://github.com/mindmug2018-oss/shimon-vault/actions" || \
+            echo "   ⚠️  Could not trigger. Is gh authenticated (gh auth login) and is workflow_dispatch in cd.yml?"
+    else
+        echo "   ⚠️  GitHub CLI (gh) not installed. Either install it, or just: git push origin main"
+    fi
+fi

@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from config import APP_VERSION, PROJECT_NAME, ENVIRONMENT
-from database import init_db, check_db_connection
+from database import init_db
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -38,16 +38,16 @@ def _init_db_with_retry(max_attempts: int = 20, delay: int = 15) -> None:
     """
     Called in a daemon thread.  Retries every `delay` seconds until
     create_all() succeeds or max_attempts is exhausted.
-    20 attempts × 15 s = 5 minutes total patience.
+    20 attempts x 15 s = 5 minutes total patience.
     """
     global _db_ready, _db_init_error
     for attempt in range(1, max_attempts + 1):
         try:
-            logger.info("DB init attempt %d/%d …", attempt, max_attempts)
+            logger.info("DB init attempt %d/%d ...", attempt, max_attempts)
             init_db()
             _db_ready = True
             _db_init_error = ""
-            logger.info("✅ Database schema ready (attempt %d)", attempt)
+            logger.info("Database schema ready (attempt %d)", attempt)
             return
         except Exception as exc:
             _db_init_error = str(exc)
@@ -57,13 +57,13 @@ def _init_db_with_retry(max_attempts: int = 20, delay: int = 15) -> None:
             )
             time.sleep(delay)
 
-    logger.error("❌ DB init failed after %d attempts: %s", max_attempts, _db_init_error)
+    logger.error("DB init failed after %d attempts: %s", max_attempts, _db_init_error)
 
 
 # ── Lifespan (replaces deprecated @app.on_event) ─────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 ShimonVault %s starting up (env: %s)", APP_VERSION, ENVIRONMENT)
+    logger.info("ShimonVault %s starting up (env: %s)", APP_VERSION, ENVIRONMENT)
 
     # Fire-and-forget background DB initialisation.
     # daemon=True means this thread will not prevent process shutdown.
@@ -96,15 +96,15 @@ app.add_middleware(
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from routers.auth_router     import router as auth_router      # noqa: E402
-from routers.docs_router     import router as docs_router      # noqa: E402
+from routers.auth_router import router as auth_router  # noqa: E402
+from routers.docs_router import router as docs_router  # noqa: E402
 from routers.meetings_router import router as meetings_router  # noqa: E402
-from routers.audit_router    import router as audit_router     # noqa: E402
+from routers.audit_router import router as audit_router  # noqa: E402
 
-app.include_router(auth_router,     prefix="/auth",     tags=["auth"])
-app.include_router(docs_router,     prefix="/docs",     tags=["docs"])
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(docs_router, prefix="/docs", tags=["docs"])
 app.include_router(meetings_router, prefix="/meetings", tags=["meetings"])
-app.include_router(audit_router,    prefix="/audit",    tags=["audit"])
+app.include_router(audit_router, prefix="/audit", tags=["audit"])
 
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
@@ -114,10 +114,10 @@ def health_check():
     Always returns HTTP 200 so the ALB health check passes immediately.
 
     The 'db' field tells you whether the database is also ready:
-      - "initialising" → background thread is still retrying (normal for
+      - "initialising" -> background thread is still retrying (normal for
         the first 1-3 minutes after a fresh EC2 boot)
-      - "ok"           → schema created, connections working
-      - "error: …"     → something is wrong; check /logs
+      - "ok"           -> schema created, connections working
+      - "error: ..."   -> something is wrong; check /logs
 
     The ALB only cares about the HTTP status code (200), not the body.
     """

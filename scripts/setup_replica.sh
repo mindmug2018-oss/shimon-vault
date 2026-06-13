@@ -1,17 +1,14 @@
 #!/bin/bash
 # scripts/setup_replica.sh
-# Run on proj-mgmt AFTER terraform apply to configure the PostgreSQL
-# logical replication replica on proj-ubuntu01.
+# Run on proj-mgmt AFTER terraform apply to configure PostgreSQL logical
+# replication: RDS (primary, AWS) -> proj-ubuntu01 (replica, on-prem).
 #
-# Architecture:
-#   RDS PostgreSQL 16 (primary, AWS)  →  proj-ubuntu01 PostgreSQL 16 (replica, on-prem)
-#   App EC2 writes to RDS             →  App EC2 reads from proj-ubuntu01 via Tailscale
+# CHANGED for the relay design: RDS lives in a private AWS subnet and is not
+# reachable from on-prem directly. The app EC2 runs a socat relay on :5432 that
+# forwards to RDS, and it's on the Tailscale mesh. So both proj-mgmt (setup) and
+# proj-ubuntu01 (the live subscription) reach RDS through the EC2's Tailscale IP.
 #
-# This demonstrates:
-#   - Database replication (logical replication via publication/subscription)
-#   - Read/write splitting (app uses two DB URLs)
-#   - High availability (reads continue if RDS is slow)
-#   - Hybrid cloud (AWS primary → on-prem replica via Tailscale)
+# Requires: socat relay in the EC2 user_data + the 5432 Tailscale SG rule.
 #
 # Usage: bash scripts/setup_replica.sh
 
@@ -19,31 +16,43 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$(cd "$SCRIPT_DIR/../terraform" && pwd)"
+KEY="$HOME/.ssh/id_ed25519_shimonvault"
 
-# Read values from terraform outputs and env
 RDS_ENDPOINT=$(cd "$TF_DIR" && terraform output -raw rds_endpoint)
-RDS_PORT=5432
 DB_NAME="${DB_NAME:-shimonvault}"
 DB_USER="${DB_USER:-shimonvault}"
 DB_PASSWORD="${DB_PASSWORD:-$(grep DB_PASSWORD "$SCRIPT_DIR/../app/.env" | cut -d= -f2)}"
-REPLICA_HOST="100.87.141.40"   # proj-ubuntu01 Tailscale IP — stable, never changes
-REPLICA_PORT=5433               # use 5433 to avoid conflict with proj-mgmt port 5432
+REPLICA_HOST="100.87.141.40"   # proj-ubuntu01 Tailscale IP — stable
+REPLICA_PORT=5433
 
+# ── Find the RDS relay (app EC2 Tailscale IP) ────────────────────────────────
+# Everyone reaches RDS through this: <EC2 Tailscale IP>:5432 -> socat -> RDS:5432
+echo "0️⃣  Finding the RDS relay (app EC2 Tailscale IP)..."
+BASTION_IP=$(cd "$TF_DIR" && terraform output -raw bastion_public_ip)
+APP_EC2_IP=$(aws ec2 describe-instances --region ap-northeast-2 \
+  --filters "Name=tag:Name,Values=shimonvault-app-blue" "Name=instance-state-name,Values=running" \
+  --query "Reservations[0].Instances[0].PrivateIpAddress" --output text)
+RDS_RELAY=$(ssh -i "$KEY" -o StrictHostKeyChecking=no \
+  -o ProxyJump=ec2-user@"$BASTION_IP" ec2-user@"$APP_EC2_IP" "tailscale ip -4" 2>/dev/null | head -1)
+
+if [ -z "$RDS_RELAY" ]; then
+  echo "   ❌ Could not get the EC2 Tailscale IP. Is the instance up and on Tailscale?"
+  exit 1
+fi
+RDS_RELAY_PORT=5432
+
+echo ""
 echo "🗄️  ShimonVault — Configuring PostgreSQL Logical Replication"
-echo ""
-echo "   Primary (RDS):   $RDS_ENDPOINT:$RDS_PORT"
-echo "   Replica (ubuntu): $REPLICA_HOST:$REPLICA_PORT"
+echo "   Primary (RDS, via relay): $RDS_RELAY:$RDS_RELAY_PORT  ->  $RDS_ENDPOINT"
+echo "   Replica (proj-ubuntu01):  $REPLICA_HOST:$REPLICA_PORT"
 echo ""
 
-# ── Step 1: Create replication user on RDS ────────────────────────────────────
-echo "1️⃣  Creating replication user on RDS primary..."
-
-# Run SQL via Docker (psql may not be installed on proj-mgmt)
-docker run --rm \
+# ── Step 1: Create replication user + publication on RDS (via relay) ─────────
+echo "1️⃣  Creating replication user and publication on RDS..."
+docker run --rm --network host \
     -e PGPASSWORD="$DB_PASSWORD" \
     postgres:16-alpine \
-    psql -h "$RDS_ENDPOINT" -p "$RDS_PORT" -U "$DB_USER" -d "$DB_NAME" << SQLEOF
--- Create dedicated replication user
+    psql -h "$RDS_RELAY" -p "$RDS_RELAY_PORT" -U "$DB_USER" -d "$DB_NAME" << SQLEOF
 DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
@@ -52,11 +61,9 @@ BEGIN
 END
 \$\$;
 
--- Grant replicator access to all tables for logical replication
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO replicator;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO replicator;
 
--- Create publication for all tables
 DROP PUBLICATION IF EXISTS shimonvault_pub;
 CREATE PUBLICATION shimonvault_pub FOR ALL TABLES;
 
@@ -69,16 +76,12 @@ echo ""
 echo "2️⃣  Starting PostgreSQL 16 replica on proj-ubuntu01..."
 ssh -o StrictHostKeyChecking=no user1@"$REPLICA_HOST" << SSHEOF
 set -e
-
-# Stop and remove old PostgreSQL 15 container if running
 docker stop shimonvault-postgres-replica 2>/dev/null || true
 docker rm shimonvault-postgres-replica 2>/dev/null || true
 
-# Create data directory
 mkdir -p /opt/shimonvault/postgres-replica/data
 mkdir -p /opt/shimonvault/postgres-replica/conf
 
-# Write postgresql.conf for replica
 cat > /opt/shimonvault/postgres-replica/conf/postgresql.conf << 'PGCONF'
 listen_addresses = '*'
 port = 5433
@@ -87,7 +90,6 @@ wal_level = replica
 hot_standby = on
 PGCONF
 
-# Write pg_hba.conf — allow connections from Tailscale CGNAT range
 cat > /opt/shimonvault/postgres-replica/conf/pg_hba.conf << 'PGCONF'
 local   all             all                                     trust
 host    all             all             127.0.0.1/32            md5
@@ -95,7 +97,6 @@ host    all             all             100.64.0.0/10           md5
 host    replication     replicator      100.64.0.0/10           md5
 PGCONF
 
-# Start PostgreSQL 16 container (must match RDS version)
 docker run -d \
     --name shimonvault-postgres-replica \
     --restart unless-stopped \
@@ -112,27 +113,22 @@ docker run -d \
 
 echo "Waiting for PostgreSQL to start..."
 sleep 10
-
-# Check it's running
 docker exec shimonvault-postgres-replica pg_isready -U $DB_USER -d $DB_NAME -p 5433
 echo "✅ PostgreSQL 16 replica container started on port 5433"
 SSHEOF
 echo "   ✅ Replica container running on proj-ubuntu01:5433"
 echo ""
 
-# ── Step 3: Create subscription on replica ────────────────────────────────────
+# ── Step 3: Create subscription on replica (connects to RDS via the relay) ───
 echo "3️⃣  Creating logical replication subscription on replica..."
-sleep 5  # wait for replica to fully start
+sleep 5
 
 ssh -o StrictHostKeyChecking=no user1@"$REPLICA_HOST" << SSHEOF
-# Create schema and tables on replica first (must exist before subscription)
-PGPASSWORD=$DB_PASSWORD docker exec -i shimonvault-postgres-replica \
+docker exec -i shimonvault-postgres-replica \
     psql -U $DB_USER -d $DB_NAME -p 5433 << SQLEOF
--- Create subscription to RDS primary
--- This pulls all existing data AND subscribes to ongoing changes
 DROP SUBSCRIPTION IF EXISTS shimonvault_sub;
 CREATE SUBSCRIPTION shimonvault_sub
-    CONNECTION 'host=$RDS_ENDPOINT port=$RDS_PORT dbname=$DB_NAME user=replicator password=$DB_PASSWORD sslmode=require'
+    CONNECTION 'host=$RDS_RELAY port=$RDS_RELAY_PORT dbname=$DB_NAME user=replicator password=$DB_PASSWORD sslmode=require'
     PUBLICATION shimonvault_pub
     WITH (copy_data = true);
 
@@ -143,22 +139,22 @@ SSHEOF
 echo "   ✅ Logical replication subscription active"
 echo ""
 
-# ── Step 4: Verify replication is working ─────────────────────────────────────
+# ── Step 4: Verify ───────────────────────────────────────────────────────────
 echo "4️⃣  Verifying replication status..."
 sleep 5
 
 echo "   RDS primary — replication slots:"
-docker run --rm \
+docker run --rm --network host \
     -e PGPASSWORD="$DB_PASSWORD" \
     postgres:16-alpine \
-    psql -h "$RDS_ENDPOINT" -p "$RDS_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    psql -h "$RDS_RELAY" -p "$RDS_RELAY_PORT" -U "$DB_USER" -d "$DB_NAME" \
     -c "SELECT slot_name, active, confirmed_flush_lsn FROM pg_replication_slots;" \
     2>/dev/null || echo "   (could not connect to verify)"
 
 echo ""
 echo "   Replica — subscription status:"
 ssh -o StrictHostKeyChecking=no user1@"$REPLICA_HOST" \
-    "PGPASSWORD=$DB_PASSWORD docker exec shimonvault-postgres-replica \
+    "docker exec shimonvault-postgres-replica \
      psql -U $DB_USER -d $DB_NAME -p 5433 \
      -c 'SELECT subname, subenabled, subslotname FROM pg_subscription;'" \
     2>/dev/null || echo "   (could not connect to verify)"
@@ -166,18 +162,8 @@ ssh -o StrictHostKeyChecking=no user1@"$REPLICA_HOST" \
 echo ""
 echo "════════════════════════════════════════════════════════"
 echo "✅ Replication setup complete!"
-echo ""
-echo "   Write URL (RDS primary):    postgresql+psycopg2://$DB_USER:***@$RDS_ENDPOINT:$RDS_PORT/$DB_NAME"
-echo "   Read URL  (on-prem replica): postgresql+psycopg2://$DB_USER:***@$REPLICA_HOST:$REPLICA_PORT/$DB_NAME"
-echo ""
-echo "   The app already uses both URLs via WRITE_DB_URL and READ_DB_URL."
-echo "   All INSERT/UPDATE/DELETE → RDS"
-echo "   All SELECT (list, download, audit feed) → proj-ubuntu01"
-echo ""
-echo "   To verify replication live:"
-echo "   1. Create a document via the API (POST /docs/upload)"
-echo "   2. Query the replica directly:"
-echo "      ssh user1@100.87.141.40"
-echo "      PGPASSWORD=\$DB_PASSWORD docker exec shimonvault-postgres-replica \\"
-echo "        psql -U $DB_USER -d $DB_NAME -p 5433 -c 'SELECT * FROM documents LIMIT 5;'"
+echo "   Writes → RDS primary | Reads → proj-ubuntu01 replica"
+echo "   Verify live: POST a doc via the API, then query the replica:"
+echo "     ssh user1@100.87.141.40 \"docker exec shimonvault-postgres-replica \\"
+echo "       psql -U $DB_USER -d $DB_NAME -p 5433 -c 'SELECT * FROM documents LIMIT 5;'\""
 echo "════════════════════════════════════════════════════════"

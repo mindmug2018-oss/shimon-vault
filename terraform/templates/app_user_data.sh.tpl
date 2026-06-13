@@ -43,8 +43,6 @@ if [ -z "$TAILSCALE_IP" ]; then
 fi
 
 # ── 3. Generate TLS certificates for Docker TCP socket ───────────────────────
-# Self-signed CA + server cert so Docker TCP 2376 is encrypted.
-# Client certs are copied to proj-mgmt so Portainer can authenticate.
 TLS_DIR="/etc/docker/tls"
 mkdir -p "$TLS_DIR"
 
@@ -109,8 +107,6 @@ cat > /etc/docker/daemon.json << DAEMONJSON
 }
 DAEMONJSON
 
-# Docker systemd unit passes -H fd:// by default which conflicts with daemon.json hosts
-# Override it to remove the -H flag
 mkdir -p /etc/systemd/system/docker.service.d
 cat > /etc/systemd/system/docker.service.d/override.conf << OVERRIDE
 [Service]
@@ -123,7 +119,6 @@ systemctl restart docker
 echo "=== Docker TCP 2376 with TLS enabled ==="
 
 # ── 5. Store client certs in a retrievable location ──────────────────────────
-# deploy.sh on proj-mgmt will SCP these certs after apply
 mkdir -p /opt/shimonvault/docker-certs
 cp "$TLS_DIR/ca.pem"          /opt/shimonvault/docker-certs/
 cp "$TLS_DIR/client-cert.pem" /opt/shimonvault/docker-certs/
@@ -179,41 +174,49 @@ echo "=== Initialising Docker Swarm ==="
 docker swarm init --advertise-addr "$PRIVATE_IP"
 echo "=== Swarm initialised ==="
 
-# ── 8. Mount NFS share from proj-ubuntu01 ────────────────────────────────────
-# proj-ubuntu01 is the NFS server on the Tailscale mesh (100.87.141.40)
-# This provides shared persistent storage across Swarm nodes
-echo "=== Mounting NFS share from proj-ubuntu01 ==="
+# ── 8. (OPTIONAL) Mount NFS share from proj-ubuntu01 ─────────────────────────
+# proj-ubuntu01 (100.87.141.40) is the NFS server on the Tailscale mesh.
+# This is OPTIONAL shared storage. The app does NOT need it to run.
+# CHANGED: a failed mount no longer aborts the script. Previously 'set -e'
+# meant a timed-out mount killed the whole startup and the app never deployed.
+echo "=== Attempting optional NFS mount from proj-ubuntu01 ==="
 yum install -y nfs-utils
-
-# Wait for Tailscale to fully connect before mounting
 sleep 5
-
 mkdir -p /mnt/shimonvault-nfs
-mount -t nfs \
-  -o vers=4,soft,timeo=30,retrans=3 \
-  100.87.141.40:/srv/nfs/shimonvault \
-  /mnt/shimonvault-nfs
 
-# Add to fstab so it remounts on reboot
-echo "100.87.141.40:/srv/nfs/shimonvault /mnt/shimonvault-nfs nfs vers=4,soft,timeo=30,retrans=3 0 0" | \
-  tee -a /etc/fstab
+if mount -t nfs -o vers=4,soft,timeo=10,retrans=2 \
+     100.87.141.40:/srv/nfs/shimonvault /mnt/shimonvault-nfs 2>/dev/null; then
+  echo "=== NFS mounted at /mnt/shimonvault-nfs ==="
+  # 'nofail' so a reboot never hangs waiting for NFS
+  echo "100.87.141.40:/srv/nfs/shimonvault /mnt/shimonvault-nfs nfs vers=4,soft,timeo=10,retrans=2,nofail 0 0" >> /etc/fstab
+else
+  echo "=== WARNING: NFS unreachable — continuing without shared storage ==="
+fi
 
-echo "=== NFS mounted at /mnt/shimonvault-nfs ==="
-
-# Create Docker NFS volume for use by Swarm services
-docker volume create \
-  --driver local \
-  --opt type=nfs \
-  --opt o=addr=100.87.141.40,vers=4,soft \
-  --opt device=:/srv/nfs/shimonvault/app-data \
-  shimonvault_app_data
-
-echo "=== Docker NFS volume created ==="
+# ── Relay so on-prem can reach RDS over Tailscale (for DB replication) ────────
+echo "=== Starting RDS relay (socat) ==="
+yum install -y socat
+cat > /etc/systemd/system/rds-relay.service << RELAYEOF
+[Unit]
+Description=TCP relay to RDS for on-prem replication
+After=network-online.target tailscaled.service
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:5432,fork,reuseaddr TCP:${rds_endpoint}:5432
+Restart=always
+[Install]
+WantedBy=multi-user.target
+RELAYEOF
+systemctl daemon-reload
+systemctl enable --now rds-relay
+echo "=== RDS relay listening on :5432 → ${rds_endpoint}:5432 ==="
 
 # ── 9. Create Portainer volume ────────────────────────────────────────────────
 docker volume create portainer_data
 
-# ── 9. Write Docker Stack compose file ───────────────────────────────────────
+# ── 10. Write Docker Stack compose file ──────────────────────────────────────
+# CHANGED: removed the external NFS volume (shimonvault_app_data). The app is
+# stateless — it stores data in S3 / DynamoDB / RDS — so it needs no local or
+# shared volume. This also means the stack no longer fails when NFS is down.
 source /opt/shimonvault/.env
 
 cat > /opt/shimonvault/stack.yml << STACKEOF
@@ -272,18 +275,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    volumes:
-      - shimonvault_app_data:/app/data
-
-volumes:
-  shimonvault_app_data:
-    external: true
 
 STACKEOF
 
 echo "=== stack.yml written ==="
 
-# ── 10. Pull image and deploy stack ───────────────────────────────────────────
+# ── 11. Pull image and deploy stack ──────────────────────────────────────────
 echo "=== Pulling app image ==="
 docker pull "mindmug/shimonvault-app:${container_tag}"
 
@@ -297,7 +294,7 @@ echo "=== Stack deployed ==="
 docker node ls
 docker stack services shimonvault
 
-# ── 11. Poll /health ──────────────────────────────────────────────────────────
+# ── 12. Poll /health ─────────────────────────────────────────────────────────
 echo "=== Polling /health ==="
 for i in $(seq 1 30); do
   sleep 10

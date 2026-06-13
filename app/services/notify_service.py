@@ -31,14 +31,14 @@ def notify_slack(message: str) -> None:
 
 
 def notify_telegram(message: str) -> None:
-    token   = os.environ.get("TELEGRAM_BOT_TOKEN")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         raise ValueError("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = json.dumps({
-        "chat_id":    chat_id,
-        "text":       message,
+        "chat_id": chat_id,
+        "text": message,
         "parse_mode": "Markdown",
     }).encode("utf-8")
     req = urllib.request.Request(

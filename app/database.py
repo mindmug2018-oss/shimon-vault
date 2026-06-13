@@ -16,16 +16,18 @@ KEY RULES (do not change without understanding why):
 3. connect_timeout=10 is set so a failed connection attempt fails fast
    instead of hanging for the default 30+ seconds.
 
-4. WRITE_DB_URL  → AWS RDS primary  (all INSERT / UPDATE / DELETE)
-   READ_DB_URL   → on-prem replica  (SELECT queries where available)
+4. WRITE_DB_URL  -> AWS RDS primary  (all INSERT / UPDATE / DELETE)
+   READ_DB_URL   -> on-prem replica  (SELECT queries where available)
    Both fall back to the same local URL when env vars are missing so
    tests work without a real database.
 """
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from config import WRITE_DB_URL, READ_DB_URL
 import logging
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+from config import READ_DB_URL, WRITE_DB_URL
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +41,12 @@ class Base(DeclarativeBase):
 # ── Engine factory (lazy) ─────────────────────────────────────────────────────
 
 _write_engine = None
-_read_engine  = None
+_read_engine = None
 
 
 def _make_engine(url: str, label: str):
     """Create a SQLAlchemy engine.  connect_timeout prevents indefinite hangs."""
-    logger.info("Creating %s engine → %s", label, url.split("@")[-1])  # hide credentials
+    logger.info("Creating %s engine -> %s", label, url.split("@")[-1])  # hide credentials
     return create_engine(
         url,
         pool_pre_ping=True,          # cheap 'SELECT 1' before handing out connections
@@ -121,7 +123,7 @@ def init_db():
     # inside the function.
     import models  # noqa: F401
 
-    logger.info("Running Base.metadata.create_all() against write engine …")
+    logger.info("Running Base.metadata.create_all() against write engine ...")
     Base.metadata.create_all(bind=get_write_engine())
     logger.info("Database schema ready.")
 

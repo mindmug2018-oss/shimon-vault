@@ -3,9 +3,9 @@
 """
 routers/auth_router.py — Authentication endpoints
 
-POST /auth/register  → create new account
-POST /auth/login     → returns JWT access token
-POST /auth/logout    → client-side logout (token blacklisting is a Week 3 feature)
+POST /auth/register  -> create new account
+POST /auth/login     -> returns JWT access token
+POST /auth/logout    -> client-side logout (token blacklisting is a Week 3 feature)
 
 Rate limiting:
   - /auth/login is limited to 10 requests/minute per IP
@@ -35,29 +35,29 @@ limiter = Limiter(key_func=get_remote_address)
 # In-memory failure counter per IP (reset on restart — good enough for demo)
 # In production this would be Redis
 _failure_counts: dict[str, int] = {}
-ALERT_THRESHOLD  = 20   # Fire Slack/Telegram alert at this many failures
-BLOCK_THRESHOLD  = 50   # Trigger Lambda block_ip at this many failures
+ALERT_THRESHOLD = 20   # Fire Slack/Telegram alert at this many failures
+BLOCK_THRESHOLD = 50   # Trigger Lambda block_ip at this many failures
 
 
 # ─── Schemas (Pydantic request/response models) ───────────────────────────────
 
 class RegisterRequest(BaseModel):
-    email:    EmailStr
+    email: EmailStr
     username: str
     password: str
-    role:     UserRole = UserRole.VIEWER  # Default to lowest privilege
+    role: UserRole = UserRole.VIEWER  # Default to lowest privilege
 
 
 class LoginRequest(BaseModel):
-    email:    EmailStr
+    email: EmailStr
     password: str
 
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type:   str = "bearer"
-    role:         str
-    username:     str
+    token_type: str = "bearer"
+    role: str
+    username: str
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ def login(
         # Fire alerts at thresholds
         if count == ALERT_THRESHOLD:
             notify_all(
-                f"🚨 *SECURITY ALERT — ShimonVault*\n"
+                f"*SECURITY ALERT -- ShimonVault*\n"
                 f"Type: Credential Stuffing (warning threshold)\n"
                 f"IP: `{ip}`\n"
                 f"Failed attempts: {count}\n"
@@ -140,7 +140,7 @@ def login(
                 detail={"failure_count": count, "email_tried": req.email},
             )
             notify_all(
-                f"🚨 *CREDENTIAL STUFFING DETECTED — ShimonVault*\n"
+                f"*CREDENTIAL STUFFING DETECTED -- ShimonVault*\n"
                 f"IP: `{ip}`\n"
                 f"Failed attempts: {count}\n"
                 f"Action: IP block Lambda triggered\n"

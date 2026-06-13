@@ -91,9 +91,13 @@ resource "aws_lb_target_group" "green" {
 }
 
 # ─── HTTP Listener (port 80) ──────────────────────────────────────────────────
-# Single listener — forwards to blue target group.
-# Cloudflare handles HTTPS termination before traffic reaches ALB,
-# so HTTP on port 80 is all we need internally.
+# Cloudflare terminates HTTPS before traffic reaches the ALB, so plain HTTP:80
+# is all we need internally.
+#
+# CHANGED for Option 1: the listener now forwards to whichever target group
+# var.active_color names (blue by default, green during a deploy). This makes
+# the blue/green switch a Terraform-owned, drift-free operation instead of an
+# out-of-band `aws elbv2 modify-listener` call that Terraform would later undo.
 resource "aws_lb_listener" "app" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
@@ -101,10 +105,13 @@ resource "aws_lb_listener" "app" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.blue.arn
+    target_group_arn = var.active_color == "green" ? aws_lb_target_group.green.arn : aws_lb_target_group.blue.arn
   }
 
-  depends_on = [aws_lb_target_group.blue]
+  depends_on = [
+    aws_lb_target_group.blue,
+    aws_lb_target_group.green,
+  ]
 }
 
 # ─── Outputs ──────────────────────────────────────────────────────────────────
@@ -115,7 +122,7 @@ output "alb_dns_name" {
 }
 
 output "alb_arn" {
-  description = "ALB ARN — used by cd.yml to shift traffic"
+  description = "ALB ARN"
   value       = aws_lb.main.arn
 }
 

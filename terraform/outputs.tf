@@ -50,3 +50,8 @@ output "ssh_command" {
   description = "SSH command to connect to Bastion"
   value       = "ssh -i ~/.ssh/id_ed25519_shimonvault ec2-user@${aws_instance.bastion.public_ip}"
 }
+
+output "alb_listener_arn" {
+  description = "ARN of the ALB HTTP listener (used by CD pipeline for blue/green switch)"
+  value       = aws_lb_listener.app.arn
+}
