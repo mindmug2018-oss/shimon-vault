@@ -142,3 +142,18 @@ resource "aws_lb_target_group_attachment" "blue" {
   target_id        = aws_instance.app_blue.id
   port             = 8000
 }
+
+# ─── Register green EC2 in the green target group ─────────────────────────────
+# Only created when deploy_green = true. When green doesn't exist, count = 0
+# and this resource is simply absent — no error, no orphaned attachment.
+resource "aws_lb_target_group_attachment" "green" {
+  count            = var.deploy_green ? 1 : 0
+  target_group_arn = aws_lb_target_group.green.arn
+  target_id        = aws_instance.app_green[0].id
+  port             = 8000
+}
+
+output "alb_listener_arn" {
+  description = "ALB listener ARN"
+  value       = aws_lb_listener.app.arn
+}
