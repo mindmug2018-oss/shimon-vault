@@ -35,7 +35,7 @@
       "type": "gauge",
       "targets": [{
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "expr": "(1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",job=\"ec2-node-exporter\"}[2m]))) * 100",
+        "expr": "(1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",job=\"ec2-nodes\"}[2m]))) * 100",
         "legendFormat": "CPU %",
         "refId": "A"
       }]
@@ -64,7 +64,7 @@
       "type": "gauge",
       "targets": [{
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"ec2-node-exporter\"} / node_memory_MemTotal_bytes{job=\"ec2-node-exporter\"})) * 100",
+        "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"ec2-nodes\"} / node_memory_MemTotal_bytes{job=\"ec2-nodes\"})) * 100",
         "legendFormat": "Memory %",
         "refId": "A"
       }]

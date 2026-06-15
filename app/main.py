@@ -107,6 +107,14 @@ app.include_router(meetings_router, prefix="/meetings", tags=["meetings"])
 app.include_router(audit_router, prefix="/audit", tags=["audit"])
 
 
+# ── Audit middleware (logs EVERY request to the AuditStream / DynamoDB) ────────
+# Added last so it is the outermost layer: it sees every request first and the
+# final response last. Without this line the AuditStream feature does nothing.
+from middleware.audit_middleware import AuditMiddleware  # noqa: E402
+
+app.add_middleware(AuditMiddleware)
+
+
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
 def health_check():

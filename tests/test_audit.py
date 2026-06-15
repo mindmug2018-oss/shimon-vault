@@ -26,14 +26,14 @@ def test_audit_middleware_fires_on_every_request(client):
     The AuditMiddleware should call write_event for every non-health request.
     We mock write_event and verify it is called when we hit /auth/login.
     """
-    with patch("app.middleware.audit_middleware.write_event") as mock_write:
+    with patch("middleware.audit_middleware.write_event") as mock_write:
         client.post("/auth/login", json={"email": "noone@test.com", "password": "bad"})
         assert mock_write.called, "AuditMiddleware did not call write_event"
 
 
 def test_failed_login_triggers_warning_severity_audit(client):
     """A failed login should produce a 'warning' severity audit event."""
-    with patch("app.middleware.audit_middleware.write_event") as mock_write:
+    with patch("middleware.audit_middleware.write_event") as mock_write:
         client.post("/auth/login", json={"email": "nobody@test.com", "password": "wrong"})
         assert mock_write.called, "write_event was never called"
         severities = [
@@ -80,6 +80,6 @@ def test_incidents_endpoint_accessible_by_admin(client):
 
 def test_health_endpoint_not_logged_by_middleware(client):
     """/health should NOT be logged by the middleware."""
-    with patch("app.middleware.audit_middleware.write_event") as mock_write:
+    with patch("middleware.audit_middleware.write_event") as mock_write:
         client.get("/health")
         assert not mock_write.called, "AuditMiddleware incorrectly logged /health"
