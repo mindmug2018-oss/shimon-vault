@@ -10,18 +10,24 @@ Why middleware and not individual route handlers?
   - Security events (403, 401, 429) are captured automatically.
 """
 import json
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from services.audit_service import write_event
 from models import AuditEventType
+
 # Paths that are too noisy to log every time
 _SKIP_PATHS = {"/health", "/metrics", "/favicon.ico"}
+
 # Map HTTP status codes to event types for security-relevant responses
 _STATUS_EVENT_MAP = {
     401: AuditEventType.LOGIN_FAILURE,
     403: AuditEventType.DOC_ACCESS_DENIED,
     429: AuditEventType.RATE_LIMIT_HIT,
 }
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         # Skip health checks and metrics scrapes — they happen every 30s

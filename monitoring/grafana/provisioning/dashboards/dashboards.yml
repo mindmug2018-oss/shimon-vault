@@ -8,9 +8,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'ShimonVault Dashboards'
+  - name: ShimonVault
     orgId: 1
-    folder: 'ShimonVault'
+    folder: ShimonVault
     type: file
     disableDeletion: false        # allow deleting dashboards from UI
     updateIntervalSeconds: 30     # check for new/updated JSON files every 30s

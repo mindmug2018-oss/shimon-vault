@@ -110,44 +110,29 @@ jobs:
         run: |
           echo "green_tg_arn=$(terraform output -raw alb_target_group_green_arn)" >> $GITHUB_OUTPUT
 
-      # ── 11. Wait for green health check to pass ───────────────────────────────────────
-      - name: Wait for green instance to be healthy
+      # ── 11. Wait for green target to be healthy (via the ALB target group) ───
+      # We poll the green target group's own health check instead of SSM. This
+      # needs no SSM agent, no SSM IAM policy, and no instance access — the ALB
+      # already health-checks /health on the green instance once it is attached.
+      # The `|| echo` keeps a transient AWS error from aborting the step under -e.
+      - name: Wait for green target to be healthy
         run: |
-          GREEN_INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters \
-              "Name=tag:Color,Values=green" \
-              "Name=tag:Project,Values=shimonvault" \
-              "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text --region ap-northeast-2)
-          echo "Green instance: $GREEN_INSTANCE_ID"
-
-          for i in $(seq 1 30); do
-            STATUS=$(aws ssm send-command \
-              --instance-ids "$GREEN_INSTANCE_ID" \
-              --document-name "AWS-RunShellScript" \
-              --parameters 'commands=["curl -sf http://localhost:8000/health && echo OK || echo FAIL"]' \
+          GREEN_TG_ARN="${{ steps.tf_outputs.outputs.green_tg_arn }}"
+          echo "Polling green target group: $GREEN_TG_ARN"
+          for i in $(seq 1 40); do
+            STATE=$(aws elbv2 describe-target-health \
+              --target-group-arn "$GREEN_TG_ARN" \
               --region ap-northeast-2 \
-              --query "Command.CommandId" --output text 2>/dev/null)
-
-            sleep 5
-
-            RESULT=$(aws ssm get-command-invocation \
-              --command-id "$STATUS" \
-              --instance-id "$GREEN_INSTANCE_ID" \
-              --region ap-northeast-2 \
-              --query "StandardOutputContent" \
-              --output text 2>/dev/null || echo "")
-
-            echo "Attempt $i/30: $RESULT"
-
-            if echo "$RESULT" | grep -q "OK"; then
-              echo "✅ Green is healthy!"
+              --query "TargetHealthDescriptions[0].TargetHealth.State" \
+              --output text 2>/dev/null || echo "pending")
+            echo "Attempt $i/40: green target state = $STATE"
+            if [ "$STATE" = "healthy" ]; then
+              echo "✅ Green target is healthy!"
               exit 0
             fi
-            sleep 10
+            sleep 15
           done
-          echo "❌ Green never became healthy."
+          echo "❌ Green never became healthy after ~10 min."
           exit 1
 
       # ── 12. Switch ALB to green (durable, via Terraform) ─────────────────────

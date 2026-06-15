@@ -1,0 +1,16 @@
+[flake8]
+# Same rules CI enforces — so `flake8 app/` locally matches the pipeline exactly.
+max-line-length = 120
+extend-ignore =
+    E501,
+    W503,
+    E221,
+    E222,
+    E241,
+    E271,
+    E272
+exclude =
+    app/.venv,
+    app/venv,
+    .git,
+    __pycache__
