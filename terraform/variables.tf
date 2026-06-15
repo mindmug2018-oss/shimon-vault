@@ -196,3 +196,8 @@ variable "dockerhub_token" {
   sensitive   = true
   description = "Docker Hub access token for pulling images on EC2 boot"
 }
+
+variable "ssh_public_key" {
+  type        = string
+  description = "SSH public key for EC2 key pair"
+}

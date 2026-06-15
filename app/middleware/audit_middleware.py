@@ -14,7 +14,6 @@ Why middleware and not individual route handlers?
 """
 
 import json
-from datetime import datetime
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -100,3 +99,5 @@ class AuditMiddleware(BaseHTTPMiddleware):
             print(f"[AuditMiddleware] Failed to write audit event: {exc}")
 
         return response
+    
+    

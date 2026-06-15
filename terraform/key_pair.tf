@@ -15,12 +15,6 @@
 # ─────────────────────────────────────────────────────────────
 
 resource "aws_key_pair" "main" {
-  key_name   = var.key_pair_name
-  # Reads your local public key — this is safe to include in Terraform
-  # because it's a PUBLIC key (the private key never leaves your machine)
-  public_key = file("~/.ssh/id_ed25519_shimonvault.pub")
-
-  tags = {
-    Name = "${var.project_name}-keypair"
-  }
+  key_name   = "${var.project_name}-key"
+  public_key = var.ssh_public_key  # ← was file("~/.ssh/...")
 }
