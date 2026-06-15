@@ -111,27 +111,43 @@ jobs:
           echo "green_tg_arn=$(terraform output -raw alb_target_group_green_arn)" >> $GITHUB_OUTPUT
 
       # ── 11. Wait for green health check to pass ───────────────────────────────────────
-      - name: Wait for green health check to pass
+      - name: Wait for green instance to be healthy
         run: |
-          GREEN_TG_ARN="${{ steps.tf_outputs.outputs.green_tg_arn }}"
-          echo "Waiting for green target to become healthy in target group..."
+          GREEN_INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters \
+              "Name=tag:Color,Values=green" \
+              "Name=tag:Project,Values=shimonvault" \
+              "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text --region ap-northeast-2)
+          echo "Green instance: $GREEN_INSTANCE_ID"
+
           for i in $(seq 1 30); do
-            STATE=$(aws elbv2 describe-target-health \
-              --target-group-arn "$GREEN_TG_ARN" \
+            STATUS=$(aws ssm send-command \
+              --instance-ids "$GREEN_INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters 'commands=["curl -sf http://localhost:8000/health && echo OK || echo FAIL"]' \
               --region ap-northeast-2 \
-              --query "TargetHealthDescriptions[0].TargetHealth.State" \
-              --output text 2>/dev/null || echo "error")
-            echo "Attempt $i/30: state = $STATE"
-            if [ "$STATE" = "healthy" ]; then
+              --query "Command.CommandId" --output text 2>/dev/null)
+
+            sleep 5
+
+            RESULT=$(aws ssm get-command-invocation \
+              --command-id "$STATUS" \
+              --instance-id "$GREEN_INSTANCE_ID" \
+              --region ap-northeast-2 \
+              --query "StandardOutputContent" \
+              --output text 2>/dev/null || echo "")
+
+            echo "Attempt $i/30: $RESULT"
+
+            if echo "$RESULT" | grep -q "OK"; then
               echo "✅ Green is healthy!"
               exit 0
             fi
-            # unused = registered but listener not pointing here yet — that's expected
-            # initial = ALB hasn't finished its first check yet — keep waiting
-            # unhealthy = app is actually failing — keep waiting up to limit
-            sleep 15
+            sleep 10
           done
-          echo "❌ Green never became healthy after 7.5 minutes."
+          echo "❌ Green never became healthy."
           exit 1
 
       # ── 12. Switch ALB to green (durable, via Terraform) ─────────────────────

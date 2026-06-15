@@ -94,6 +94,10 @@ locals {
   app_instance_role_name = aws_iam_role.app_ec2.name
 }
 
+resource "aws_iam_role_policy_attachment" "app_ssm" {
+  role       = aws_iam_role.app_ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
 
 # ─── 2. Lambda Base Execution Role ────────────────────────────────────────────
 
