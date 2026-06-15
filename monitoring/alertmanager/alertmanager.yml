@@ -1,5 +1,8 @@
 global:
   resolve_timeout: 5m
+  # Alertmanager does NOT expand ${ENV} vars in this file. The compose entrypoint
+  # writes the Slack webhook URL to /tmp/slack_url at startup; we read it here.
+  slack_api_url_file: /tmp/slack_url
 
 route:
   group_by: ["alertname", "instance", "severity"]
@@ -11,15 +14,14 @@ route:
 receivers:
   - name: "all-channels"
     slack_configs:
-      - api_url: '{{ env "SLACK_WEBHOOK_URL" }}'
-        channel: '#shimonvault-alerts'
+      - channel: '#shimonvault-alerts'
         send_resolved: true
         title: >-
-          {{ if eq .Status "firing" }}
+          {{ if eq .Status "firing" -}}
           🚨 [ALERT] {{ .CommonAnnotations.summary }}
-          {{ else }}
+          {{- else -}}
           ✅ [RESOLVED] {{ .CommonAnnotations.summary }}
-          {{ end }}
+          {{- end }}
         text: >-
           {{ range .Alerts }}
           *Alert:* {{ .Annotations.summary }}
@@ -31,21 +33,17 @@ receivers:
         icon_emoji: ":warning:"
         username: "ShimonVault Alertmanager"
 
-    # ── Telegram (via relay service) ─────────────────────────────────────────
-    # Alertmanager does not support Telegram natively.
-    # We route to a tiny Python relay service (monitoring/telegram_relay/)
-    # that converts the Alertmanager webhook payload to a Telegram Bot API call.
+    # Alertmanager has no native Telegram support, so we POST to the relay.
+    # Host = the compose SERVICE name (telegram_relay, underscore) — NOT
+    # "telegram-relay", which doesn't resolve.
+    # Path = the route your relay.py serves. I built it as /telegram-relay.
+    # Verify with the curl test in the chat; change the path if yours differs.
     webhook_configs:
-      - url: "http://telegram-relay:8001/alert"
+      - url: "http://telegram_relay:8001/telegram-relay"
         send_resolved: true
         http_config:
           follow_redirects: true
 
-
-# ─── Inhibit Rules ────────────────────────────────────────────────────────────
-# Inhibit rules suppress child alerts when a parent alert is already firing.
-# Example: if the whole instance is down (NodeDown), suppress CPU/memory alerts
-# for that instance — they're a consequence, not a separate problem.
 inhibit_rules:
   - source_match:
       alertname: "NodeDown"

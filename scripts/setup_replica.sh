@@ -3,12 +3,13 @@
 # Run on proj-mgmt AFTER terraform apply to configure PostgreSQL logical
 # replication: RDS (primary, AWS) -> proj-ubuntu01 (replica, on-prem).
 #
-# CHANGED for the relay design: RDS lives in a private AWS subnet and is not
-# reachable from on-prem directly. The app EC2 runs a socat relay on :5432 that
-# forwards to RDS, and it's on the Tailscale mesh. So both proj-mgmt (setup) and
-# proj-ubuntu01 (the live subscription) reach RDS through the EC2's Tailscale IP.
+# The app EC2 runs a socat relay on :5432 that forwards to RDS, and it's on the
+# Tailscale mesh. proj-mgmt (setup) and proj-ubuntu01 (live subscription) both
+# reach RDS through the EC2's Tailscale IP. We find that IP from proj-mgmt's OWN
+# tailscale daemon by hostname — so this works even when bastion SSH is down.
 #
-# Requires: socat relay in the EC2 user_data + the 5432 Tailscale SG rule.
+# Replica files live under /home/user1 (not /opt) so no sudo is needed on
+# proj-ubuntu01. Docker fixes the data-dir ownership on first start.
 #
 # Usage: bash scripts/setup_replica.sh
 
@@ -16,7 +17,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="$(cd "$SCRIPT_DIR/../terraform" && pwd)"
-KEY="$HOME/.ssh/id_ed25519_shimonvault"
 
 RDS_ENDPOINT=$(cd "$TF_DIR" && terraform output -raw rds_endpoint)
 DB_NAME="${DB_NAME:-shimonvault}"
@@ -25,18 +25,27 @@ DB_PASSWORD="${DB_PASSWORD:-$(grep DB_PASSWORD "$SCRIPT_DIR/../app/.env" | cut -
 REPLICA_HOST="100.87.141.40"   # proj-ubuntu01 Tailscale IP — stable
 REPLICA_PORT=5433
 
-# ── Find the RDS relay (app EC2 Tailscale IP) ────────────────────────────────
-# Everyone reaches RDS through this: <EC2 Tailscale IP>:5432 -> socat -> RDS:5432
+# ── Step 0: Find the RDS relay (app EC2 Tailscale IP) — no bastion ────────────
 echo "0️⃣  Finding the RDS relay (app EC2 Tailscale IP)..."
-BASTION_IP=$(cd "$TF_DIR" && terraform output -raw bastion_public_ip)
-APP_EC2_IP=$(aws ec2 describe-instances --region ap-northeast-2 \
-  --filters "Name=tag:Name,Values=shimonvault-app-blue" "Name=instance-state-name,Values=running" \
-  --query "Reservations[0].Instances[0].PrivateIpAddress" --output text)
-RDS_RELAY=$(ssh -i "$KEY" -o StrictHostKeyChecking=no \
-  -o ProxyJump=ec2-user@"$BASTION_IP" ec2-user@"$APP_EC2_IP" "tailscale ip -4" 2>/dev/null | head -1)
+RDS_RELAY=$(tailscale status --json 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+fallback = ''
+for peer in (data.get('Peer') or {}).values():
+    if peer.get('HostName') == 'shimonvault-app-blue' and peer.get('TailscaleIPs'):
+        ip = peer['TailscaleIPs'][0]
+        if peer.get('Online'):
+            print(ip); sys.exit(0)
+        fallback = ip
+print(fallback)
+")
 
 if [ -z "$RDS_RELAY" ]; then
-  echo "   ❌ Could not get the EC2 Tailscale IP. Is the instance up and on Tailscale?"
+  echo "   ❌ Could not find 'shimonvault-app-blue' on the Tailscale mesh."
+  echo "      Check:  tailscale status | grep shimonvault-app-blue"
   exit 1
 fi
 RDS_RELAY_PORT=5432
@@ -73,16 +82,17 @@ echo "   ✅ Replication user and publication created on RDS"
 echo ""
 
 # ── Step 2: Start PostgreSQL 16 replica on proj-ubuntu01 ─────────────────────
+# Files live under /home/user1 so no sudo is needed.
 echo "2️⃣  Starting PostgreSQL 16 replica on proj-ubuntu01..."
 ssh -o StrictHostKeyChecking=no user1@"$REPLICA_HOST" << SSHEOF
 set -e
 docker stop shimonvault-postgres-replica 2>/dev/null || true
 docker rm shimonvault-postgres-replica 2>/dev/null || true
 
-mkdir -p /opt/shimonvault/postgres-replica/data
-mkdir -p /opt/shimonvault/postgres-replica/conf
+mkdir -p /home/user1/shimonvault/postgres-replica/data
+mkdir -p /home/user1/shimonvault/postgres-replica/conf
 
-cat > /opt/shimonvault/postgres-replica/conf/postgresql.conf << 'PGCONF'
+cat > /home/user1/shimonvault/postgres-replica/conf/postgresql.conf << 'PGCONF'
 listen_addresses = '*'
 port = 5433
 max_connections = 100
@@ -90,7 +100,7 @@ wal_level = replica
 hot_standby = on
 PGCONF
 
-cat > /opt/shimonvault/postgres-replica/conf/pg_hba.conf << 'PGCONF'
+cat > /home/user1/shimonvault/postgres-replica/conf/pg_hba.conf << 'PGCONF'
 local   all             all                                     trust
 host    all             all             127.0.0.1/32            md5
 host    all             all             100.64.0.0/10           md5
@@ -104,9 +114,9 @@ docker run -d \
     -e POSTGRES_DB=$DB_NAME \
     -e POSTGRES_USER=$DB_USER \
     -e POSTGRES_PASSWORD=$DB_PASSWORD \
-    -v /opt/shimonvault/postgres-replica/data:/var/lib/postgresql/data \
-    -v /opt/shimonvault/postgres-replica/conf/postgresql.conf:/etc/postgresql/postgresql.conf \
-    -v /opt/shimonvault/postgres-replica/conf/pg_hba.conf:/etc/postgresql/pg_hba.conf \
+    -v /home/user1/shimonvault/postgres-replica/data:/var/lib/postgresql/data \
+    -v /home/user1/shimonvault/postgres-replica/conf/postgresql.conf:/etc/postgresql/postgresql.conf \
+    -v /home/user1/shimonvault/postgres-replica/conf/pg_hba.conf:/etc/postgresql/pg_hba.conf \
     postgres:16-alpine \
     postgres -c config_file=/etc/postgresql/postgresql.conf \
              -c hba_file=/etc/postgresql/pg_hba.conf

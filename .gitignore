@@ -58,3 +58,4 @@ docker-compose.override.yml
 #aws
 aws/
 awscliv2.zip
+monitoring/.env

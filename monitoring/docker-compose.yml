@@ -1,4 +1,3 @@
-version: "3.8"
 
 # ShimonVault — On-prem monitoring stack
 # Runs on proj-mgmt (always on, never destroyed)
@@ -8,6 +7,8 @@ version: "3.8"
 # This is the correct hybrid cloud architecture:
 #   proj-mgmt    → monitoring (Prometheus, Grafana, Alertmanager, Portainer)
 #   proj-ubuntu01 → data (NFS share + PostgreSQL read replica)
+
+name: shimonvault
 
 services:
 
@@ -54,9 +55,13 @@ services:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     environment:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
-    command:
-      - "--config.file=/etc/alertmanager/alertmanager.yml"
-      - "--storage.path=/alertmanager"
+    # Alertmanager can't read ${ENV} from its config file, so write the Slack
+    # webhook URL to /tmp/slack_url at startup, then exec alertmanager. The
+    # $$ keeps compose from expanding it — the container's shell does.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - echo "$${SLACK_WEBHOOK_URL}" > /tmp/slack_url && exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager --cluster.listen-address=
 
   node_exporter:
     image: prom/node-exporter:latest
@@ -107,7 +112,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      DOCKER_HOST: "tcp://100.106.241.40:2376"
+      DOCKER_HOST: "tcp://100.97.61.78:2376"
     volumes:
       - portainer_data:/data
       - ./docker-certs/ca.pem:/certs/ca.pem:ro
@@ -118,7 +123,7 @@ services:
       --tlscacert=/certs/ca.pem
       --tlscert=/certs/cert.pem
       --tlskey=/certs/key.pem
-      --host tcp://100.106.241.40:2376
+      --host tcp://100.97.61.78:2376
 
 volumes:
   prometheus_data:
