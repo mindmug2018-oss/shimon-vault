@@ -99,4 +99,3 @@ class AuditMiddleware(BaseHTTPMiddleware):
             print(f"[AuditMiddleware] Failed to write audit event: {exc}")
 
         return response
-    

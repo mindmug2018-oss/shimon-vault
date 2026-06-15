@@ -110,28 +110,28 @@ jobs:
         run: |
           echo "green_tg_arn=$(terraform output -raw alb_target_group_green_arn)" >> $GITHUB_OUTPUT
 
+      # ── 11. Wait for green health check to pass ───────────────────────────────────────
       - name: Wait for green health check to pass
         run: |
-          # Get green EC2 private IP from Terraform
-          cd terraform
-          GREEN_IP=$(terraform output -raw app_green_private_ip)
-          echo "Polling green instance directly at $GREEN_IP:8000/health"
-          for i in $(seq 1 20); do
-            STATUS=$(aws ec2 describe-instance-status \
-              --filters "Name=private-ip-address,Values=$GREEN_IP" \
-              --query "InstanceStatuses[0].InstanceState.Name" \
-              --output text 2>/dev/null || echo "unknown")
-            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 5 \
-              "http://$GREEN_IP:8000/health" 2>/dev/null || echo "000")
-            echo "Attempt $i/20: instance=$STATUS http=$HTTP"
-            if [ "$HTTP" = "200" ]; then
+          GREEN_TG_ARN="${{ steps.tf_outputs.outputs.green_tg_arn }}"
+          echo "Waiting for green target to become healthy in target group..."
+          for i in $(seq 1 30); do
+            STATE=$(aws elbv2 describe-target-health \
+              --target-group-arn "$GREEN_TG_ARN" \
+              --region ap-northeast-2 \
+              --query "TargetHealthDescriptions[0].TargetHealth.State" \
+              --output text 2>/dev/null || echo "error")
+            echo "Attempt $i/30: state = $STATE"
+            if [ "$STATE" = "healthy" ]; then
               echo "✅ Green is healthy!"
               exit 0
             fi
+            # unused = registered but listener not pointing here yet — that's expected
+            # initial = ALB hasn't finished its first check yet — keep waiting
+            # unhealthy = app is actually failing — keep waiting up to limit
             sleep 15
           done
-          echo "❌ Green never became healthy. Keeping blue live."
+          echo "❌ Green never became healthy after 7.5 minutes."
           exit 1
 
       # ── 12. Switch ALB to green (durable, via Terraform) ─────────────────────
