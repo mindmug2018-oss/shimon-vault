@@ -30,7 +30,7 @@ services:
       - alertmanager
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.6.15
     container_name: shimonvault-grafana
     restart: always
     ports:
@@ -113,7 +113,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      DOCKER_HOST: "tcp://100.99.212.113:2376"
+      DOCKER_HOST: "tcp://100.80.150.67:2376"
     volumes:
       - portainer_data:/data
       - ./docker-certs/ca.pem:/certs/ca.pem:ro
@@ -124,7 +124,7 @@ services:
       --tlscacert=/certs/ca.pem
       --tlscert=/certs/cert.pem
       --tlskey=/certs/key.pem
-      --host tcp://100.99.212.113:2376
+      --host tcp://100.80.150.67:2376
 
 volumes:
   prometheus_data:
