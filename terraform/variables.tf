@@ -47,7 +47,8 @@ variable "private_subnet_cidr" {
 
 variable "your_ip_cidr" {
   type        = string
-  description = "Your current public IP in CIDR notation for bastion SSH. Example: 203.0.113.42/32"
+  description = "Your STABLE home/operator public IP in CIDR notation for bastion SSH (e.g. 203.0.113.42/32). Set this in terraform.tfvars AND as the YOUR_IP_CIDR GitHub secret. Defaults to empty: when empty the bastion falls back to the auto-detected IP only (same as before)."
+  default     = ""
 }
 
 # ─── Compute ──────────────────────────────────────────────────────────────────
@@ -88,7 +89,13 @@ variable "tailscale_auth_key" {
 
 variable "onprem_tailscale_ip" {
   type        = string
-  description = "Tailscale IP of your on-prem Linux server (starts with 100.x.x.x)"
+  description = "Tailscale IP of proj-mgmt (monitoring server). Retained for compatibility / other references; NO LONGER used for the read DB — see replica_tailscale_ip."
+}
+
+variable "replica_tailscale_ip" {
+  type        = string
+  description = "Tailscale IP of the Postgres READ REPLICA host (proj-ubuntu01). The app's READ_DB_URL points here. This is proj-ubuntu01's stable Tailscale IP."
+  default     = "100.87.141.40"
 }
 
 # ─── Docker ───────────────────────────────────────────────────────────────────
@@ -200,4 +207,10 @@ variable "dockerhub_token" {
 variable "ssh_public_key" {
   type        = string
   description = "SSH public key for EC2 key pair"
+}
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token for DNS automation (used by scripts/deploy.sh, not by Terraform resources directly)"
+  type        = string
+  sensitive   = true
+  default     = ""
 }

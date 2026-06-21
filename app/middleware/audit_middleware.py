@@ -10,15 +10,66 @@ Why middleware and not individual route handlers?
   - Security events (403, 401, 429) are captured automatically.
 """
 import json
+import uuid as _uuid
+from typing import Optional
 
 from fastapi import Request
+from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from services.audit_service import write_event
-from models import AuditEventType
+import config
+from database import get_write_db
+from models import AuditEventType, User
+from services.audit_service import write_event, write_security_incident
 
 # Paths that are too noisy to log every time
 _SKIP_PATHS = {"/health", "/metrics", "/favicon.ico"}
+
+# After this many access-control violations (403s) by one user, suspend them.
+_SUSPEND_THRESHOLD = 5
+_violation_counts: dict[str, int] = {}
+
+
+def _user_id_from_request(request: Request) -> Optional[str]:
+    """Pull the user id (JWT 'sub') from the Authorization header, or None."""
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(
+            token, config.JWT_SECRET_KEY, algorithms=[config.JWT_ALGORITHM]
+        )
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+def _record_violation_and_maybe_suspend(user_id: str, ip: str) -> None:
+    """
+    Count one access-control violation for this user. Once the count reaches
+    _SUSPEND_THRESHOLD, set users.suspended = True (auth.get_current_user then
+    blocks the account). Best-effort: any failure is logged, never raised.
+    """
+    _violation_counts[user_id] = _violation_counts.get(user_id, 0) + 1
+    if _violation_counts[user_id] < _SUSPEND_THRESHOLD:
+        return
+
+    gen = get_write_db()
+    db = next(gen)
+    try:
+        user = db.query(User).filter(User.id == _uuid.UUID(str(user_id))).first()
+        if user and not user.suspended:
+            user.suspended = True
+            db.commit()
+            write_security_incident(
+                incident_type="broken_access_control",
+                ip_address=ip,
+                detail={"user_id": user_id, "violations": _violation_counts[user_id]},
+                user_id=user_id,
+            )
+    finally:
+        gen.close()
 
 # Map HTTP status codes to event types for security-relevant responses
 _STATUS_EVENT_MAP = {
@@ -86,4 +137,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
             )
         except Exception as exc:
             print(f"[AuditMiddleware] Failed to write audit event: {exc}")
+
+        # Broken-access-control auto-suspend: count 403s per user and suspend
+        # the account once it crosses the threshold. Wrapped so it can never
+        # affect the response.
+        if status_code == 403:
+            try:
+                uid = _user_id_from_request(request)
+                if uid:
+                    _record_violation_and_maybe_suspend(uid, ip)
+            except Exception as exc:
+                print(f"[AuditMiddleware] suspension check failed: {exc}")
+
         return response

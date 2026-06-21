@@ -59,22 +59,22 @@ UNEXPECTED=0
 
 for endpoint in "${ADMIN_ENDPOINTS[@]}"; do
   METHOD=$(echo "$endpoint" | cut -d' ' -f1)
-  PATH=$(echo "$endpoint" | cut -d' ' -f2)
+  ENDPOINT_PATH=$(echo "$endpoint" | cut -d' ' -f2)
   (( ATTEMPT += 1 ))
 
   HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X "$METHOD" "$BASE_URL$PATH" \
+    -X "$METHOD" "$BASE_URL$ENDPOINT_PATH" \
     -H "Authorization: Bearer $VIEWER_TOKEN" \
     --max-time 5 || echo "000")
 
   if [[ "$HTTP_STATUS" == "403" ]]; then
     (( FORBIDDEN += 1 ))
-    printf "  [%d] %-38s → 🔒 403 Forbidden ✅ (correct)\n" "$ATTEMPT" "$METHOD $PATH"
+    printf "  [%d] %-38s → 🔒 403 Forbidden ✅ (correct)\n" "$ATTEMPT" "$METHOD $ENDPOINT_PATH"
   elif [[ "$HTTP_STATUS" == "401" ]]; then
-    printf "  [%d] %-38s → 🔑 401 Unauthorized\n" "$ATTEMPT" "$METHOD $PATH"
+    printf "  [%d] %-38s → 🔑 401 Unauthorized\n" "$ATTEMPT" "$METHOD $ENDPOINT_PATH"
   else
     (( UNEXPECTED += 1 ))
-    printf "  [%d] %-38s → ⚠️  %s (unexpected!)\n" "$ATTEMPT" "$METHOD $PATH" "$HTTP_STATUS"
+    printf "  [%d] %-38s → ⚠️  %s (unexpected!)\n" "$ATTEMPT" "$METHOD $ENDPOINT_PATH" "$HTTP_STATUS"
   fi
 
   sleep 0.3

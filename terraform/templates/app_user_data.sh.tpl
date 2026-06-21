@@ -135,7 +135,7 @@ APP_VERSION=${app_version}
 ENVIRONMENT=production
 
 WRITE_DB_URL=postgresql+psycopg2://${db_user}:${db_password}@${rds_endpoint}:${rds_port}/${db_name}
-READ_DB_URL=postgresql+psycopg2://${db_user}:${db_password}@${read_db_host}:5432/${db_name}
+READ_DB_URL=postgresql+psycopg2://${db_user}:${db_password}@${read_db_host}:5433/${db_name}
 
 JWT_SECRET_KEY=${jwt_secret_key}
 JWT_ALGORITHM=HS256

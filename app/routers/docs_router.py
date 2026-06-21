@@ -18,6 +18,7 @@ Security:
 """
 
 import json
+import uuid as _uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -226,9 +227,30 @@ def get_document_versions(
     db: Session = Depends(get_read_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all versions of a document."""
+    """
+    List all versions of a document.
+
+    A VIEWER may only list versions of their OWN existing documents. Any other
+    case for a viewer — someone else's document, or a missing / malformed id —
+    returns 403 without revealing whether the document exists (this is what
+    makes the broken-access-control demo report a clean 403 instead of a 500).
+    ADMIN / EDITOR get a normal 404 for a genuinely missing document.
+    """
+    # Resolve the document, tolerating a malformed (non-UUID) id.
+    doc = None
+    try:
+        doc = db.query(Document).filter(Document.id == _uuid.UUID(str(doc_id))).first()
+    except (ValueError, AttributeError):
+        doc = None
+
+    if current_user.role == UserRole.VIEWER:
+        if doc is None or str(doc.owner_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
     versions = db.query(Document).filter(
-        Document.parent_id == doc_id,
+        Document.parent_id == doc.id,
     ).order_by(Document.version.desc()).all()
 
     return [

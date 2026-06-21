@@ -26,7 +26,7 @@ resource "aws_instance" "app_blue" {
     rds_endpoint = aws_db_instance.main.address
     rds_port     = aws_db_instance.main.port
     db_name      = var.db_name
-    read_db_host = var.onprem_tailscale_ip
+    read_db_host = var.replica_tailscale_ip
 
     jwt_secret_key = var.jwt_secret_key
 

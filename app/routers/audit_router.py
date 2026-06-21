@@ -38,24 +38,16 @@ def _get_incidents_table():
 @router.get("/feed")
 def get_audit_feed(
     limit: int = 100,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
 ):
     """
-    Return the most recent audit events.
-    Admin sees all events. Non-admin sees only their own.
-    Used by Grafana JSON API plugin for the live feed panel.
+    Return the most recent audit events. ADMIN ONLY — this is the full,
+    cross-user trail, so the Grafana live-feed panel must use an admin token.
+    Non-admins use GET /audit/my-activity to see only their own events.
     """
     table = _get_audit_table()
     try:
-        if current_user.role == UserRole.ADMIN:
-            # Admin sees everything
-            response = table.scan(Limit=limit)
-        else:
-            # Non-admin sees only their own events
-            response = table.scan(
-                FilterExpression=Attr("user_id").eq(str(current_user.id)),
-                Limit=limit,
-            )
+        response = table.scan(Limit=limit)
         items = sorted(
             response.get("Items", []),
             key=lambda x: x.get("created_at", ""),
@@ -79,7 +71,7 @@ def get_incidents(
     table = _get_incidents_table()
     try:
         response = table.scan(
-            FilterExpression=Attr("status").eq("active"),
+            FilterExpression=Attr("status").is_in(["open", "active"]),
         )
         incidents = sorted(
             response.get("Items", []),

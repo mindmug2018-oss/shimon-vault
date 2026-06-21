@@ -21,6 +21,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+      - ./prometheus/rules:/etc/prometheus/rules:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -113,7 +114,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      DOCKER_HOST: "tcp://100.80.150.67:2376"
+      DOCKER_HOST: "tcp://100.84.185.113:2376"
     volumes:
       - portainer_data:/data
       - ./docker-certs/ca.pem:/certs/ca.pem:ro
@@ -124,7 +125,7 @@ services:
       --tlscacert=/certs/ca.pem
       --tlscert=/certs/cert.pem
       --tlskey=/certs/key.pem
-      --host tcp://100.80.150.67:2376
+      --host tcp://100.84.185.113:2376
 
 volumes:
   prometheus_data:

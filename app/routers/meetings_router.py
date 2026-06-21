@@ -13,6 +13,7 @@ GET    /meetings/{id}/archive -> get past meeting attendance record
 """
 
 import secrets
+import uuid as _uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -160,9 +161,22 @@ def cancel_meeting(
     db: Session = Depends(get_write_db),
     current_user: User = Depends(get_current_user),
 ):
-    meeting = _get_or_404(db, meeting_id)
-    if str(meeting.organizer_id) != str(current_user.id) and current_user.role != UserRole.ADMIN:
+    """
+    Cancel a meeting. Allowed for the meeting's ORGANIZER or an ADMIN.
+
+    Anyone else — including a viewer hitting a non-existent or malformed id —
+    gets 403 without revealing whether the meeting exists, so the access-control
+    demo reports a clean 403 instead of a 500. An admin hitting a genuinely
+    missing meeting still gets a 404.
+    """
+    meeting = _get_or_none(db, meeting_id)
+    is_admin = current_user.role == UserRole.ADMIN
+    is_organizer = meeting is not None and str(meeting.organizer_id) == str(current_user.id)
+
+    if not (is_admin or is_organizer):
         raise HTTPException(status_code=403, detail="Only the organizer or admin can cancel")
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
     meeting.status = MeetingStatus.CANCELLED
     db.commit()
@@ -271,8 +285,17 @@ def get_meeting_archive(
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+def _get_or_none(db: Session, meeting_id: str) -> Optional[Meeting]:
+    """Return the meeting, or None if the id is malformed or missing (never 500)."""
+    try:
+        mid = _uuid.UUID(str(meeting_id))
+    except (ValueError, AttributeError):
+        return None
+    return db.query(Meeting).filter(Meeting.id == mid).first()
+
+
 def _get_or_404(db: Session, meeting_id: str) -> Meeting:
-    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    meeting = _get_or_none(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
     return meeting

@@ -35,8 +35,8 @@ limiter = Limiter(key_func=get_remote_address)
 # In-memory failure counter per IP (reset on restart — good enough for demo)
 # In production this would be Redis
 _failure_counts: dict[str, int] = {}
-ALERT_THRESHOLD = 20   # Fire Slack/Telegram alert at this many failures
-BLOCK_THRESHOLD = 50   # Trigger Lambda block_ip at this many failures
+ALERT_THRESHOLD = 5    # Fire Slack/Telegram alert at this many failures
+BLOCK_THRESHOLD = 8    # Trigger Lambda block_ip at this many failures
 
 
 # ─── Schemas (Pydantic request/response models) ───────────────────────────────

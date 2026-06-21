@@ -88,11 +88,11 @@ resource "aws_security_group" "bastion" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "SSH from operator IP only (auto-detected via current_ip.tf)"
+    description = "SSH from operator IP and apply-host IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [local.current_ip_cidr]
+    cidr_blocks = distinct(compact([var.your_ip_cidr, local.current_ip_cidr]))
   }
 
   egress {

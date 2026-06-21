@@ -62,10 +62,16 @@ TELEGRAM_BOT_TOKEN=$(read_tfvar "telegram_bot_token")
 TELEGRAM_CHAT_ID=$(read_tfvar "telegram_chat_id")
 DB_USERNAME=$(read_tfvar "db_username")
 
-# DB URL — asyncpg format for FastAPI SQLAlchemy
+# DB URLs — writes go to RDS (primary), reads go to the on-prem replica.
+# This is the real read/write split: it requires logical replication to be
+# active (scripts/setup_replica.sh) and the replica reachable over Tailscale.
+# REPLICA_HOST is proj-ubuntu01's stable Tailscale IP (same value used in
+# setup_replica.sh and var.replica_tailscale_ip).
 DB_HOST="$RDS_ENDPOINT"
+REPLICA_HOST="100.87.141.40"
+REPLICA_PORT="5433"
 WRITE_DB_URL="postgresql+psycopg2://${DB_USERNAME}:${DB_PASSWORD}@${RDS_ENDPOINT}:5432/${PROJECT_NAME}"
-READ_DB_URL="$WRITE_DB_URL"
+READ_DB_URL="postgresql+psycopg2://${DB_USERNAME}:${DB_PASSWORD}@${REPLICA_HOST}:${REPLICA_PORT}/${PROJECT_NAME}"
 
 # ── Write app/.env ─────────────────────────────────────────────────────────────
 cat > "$REPO_ROOT/app/.env" << EOF

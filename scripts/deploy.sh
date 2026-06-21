@@ -102,6 +102,30 @@ echo "   Bastion IP: $BASTION_IP"
 echo "   Blue EC2:   $BLUE_IP"
 echo ""
 
+# ── 5.5: Update Cloudflare DNS to point to current ALB ────────────────────────
+# ALB DNS name changes on every terraform apply (AWS appends a new random
+# suffix each time the load balancer is recreated). Without this step,
+# portfolio.cshimomoto.com silently breaks after every fresh deploy.
+echo "🌐 Updating Cloudflare DNS (portfolio.cshimomoto.com → $ALB_DNS)..."
+CF_TOKEN=$(grep cloudflare_api_token "$TF_DIR/terraform.tfvars" | cut -d'"' -f2)
+CF_ZONE_ID="9552af6942ec853c0bc814e9689795aa"
+CF_RECORD_ID="a80065b4abff38457f85f2da79e06e3b"
+if [ -n "$CF_TOKEN" ]; then
+  CF_RESULT=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
+    -H "Authorization: Bearer $CF_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "{\"type\":\"CNAME\",\"name\":\"portfolio.cshimomoto.com\",\"content\":\"$ALB_DNS\",\"proxied\":false,\"ttl\":1}")
+  CF_SUCCESS=$(echo "$CF_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('success', False))" 2>/dev/null || echo "false")
+  if [ "$CF_SUCCESS" = "True" ]; then
+    echo "   ✅ Cloudflare DNS updated successfully"
+  else
+    echo "   ⚠️  Cloudflare DNS update failed — check manually: $CF_RESULT"
+  fi
+else
+  echo "   ⚠️  No cloudflare_api_token found in terraform.tfvars — skipping DNS update"
+fi
+echo ""
+
 # ── 6. Wait for bastion SSH to be ready ──────────────────────────────────────
 # The bastion takes 30-60s after Terraform reports it created before sshd is
 # actually accepting connections. Steps 10-13 all need SSH via the bastion.
