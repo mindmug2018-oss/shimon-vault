@@ -18,8 +18,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from rate_limit import limiter
 from sqlalchemy.orm import Session
 
 import config
@@ -30,7 +29,6 @@ from services.audit_service import write_event, write_security_incident
 from services.notify_service import notify_all
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 # In-memory failure counter per IP (reset on restart — good enough for demo)
 # In production this would be Redis

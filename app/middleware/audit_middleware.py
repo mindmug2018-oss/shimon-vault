@@ -21,6 +21,9 @@ import config
 from database import get_write_db
 from models import AuditEventType, User
 from services.audit_service import write_event, write_security_incident
+from services.notify_service import notify_all
+from services.s3_service import upload_incident_report
+from datetime import datetime, timezone
 
 # Paths that are too noisy to log every time
 _SKIP_PATHS = {"/health", "/metrics", "/favicon.ico"}
@@ -28,6 +31,9 @@ _SKIP_PATHS = {"/health", "/metrics", "/favicon.ico"}
 # After this many access-control violations (403s) by one user, suspend them.
 _SUSPEND_THRESHOLD = 5
 _violation_counts: dict[str, int] = {}
+
+# Bulk-download / exfiltration tracking: one alert per IP per burst.
+_exfil_alerted_ips: set = set()
 
 
 def _user_id_from_request(request: Request) -> Optional[str]:
@@ -68,8 +74,53 @@ def _record_violation_and_maybe_suspend(user_id: str, ip: str) -> None:
                 detail={"user_id": user_id, "violations": _violation_counts[user_id]},
                 user_id=user_id,
             )
+            notify_all(
+                f"*ACCESS VIOLATION -- ShimonVault*\n"
+                f"Type: Broken Access Control (account suspended)\n"
+                f"User ID: `{user_id}`\n"
+                f"Violations: {_violation_counts[user_id]}\n"
+                f"Action: Account suspended\n"
+                f"Time: {datetime.now(timezone.utc).isoformat()}"
+            )
     finally:
         gen.close()
+
+
+def _maybe_report_exfiltration(ip: str, path: str) -> None:
+    """
+    First 429 seen from a given IP on a /docs/download path triggers one
+    incident report + one Slack/Telegram alert for that IP. Subsequent 429s
+    from the same IP (the rest of the burst) are still logged to the audit
+    trail by the normal per-request logic, but do not re-alert.
+    """
+    if ip in _exfil_alerted_ips:
+        return
+    _exfil_alerted_ips.add(ip)
+    report = {
+        "incident_type": "bulk_file_exfiltration",
+        "ip_address": ip,
+        "path": path,
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "detail": "Rate limit (10 downloads / 60s) exceeded on /docs/download",
+    }
+    try:
+        s3_key = upload_incident_report("bulk_file_exfiltration", report)
+    except Exception as exc:
+        s3_key = None
+        print(f"[exfiltration] Failed to upload S3 report: {exc}")
+    write_security_incident(
+        incident_type="bulk_file_exfiltration",
+        ip_address=ip,
+        detail={"path": path, "s3_report_key": s3_key},
+    )
+    notify_all(
+        f"*EXFILTRATION ATTEMPT -- ShimonVault*\n"
+        f"Type: Bulk File Download\n"
+        f"IP: `{ip}`\n"
+        f"Action: Rate limit enforced, further requests blocked\n"
+        f"Report: {s3_key or 'upload failed'}\n"
+        f"Time: {datetime.now(timezone.utc).isoformat()}"
+    )
 
 # Map HTTP status codes to event types for security-relevant responses
 _STATUS_EVENT_MAP = {
@@ -94,6 +145,15 @@ class AuditMiddleware(BaseHTTPMiddleware):
             severity = "warning"
         else:
             severity = "info"
+        # Exfiltration detection: first 429 on a /docs/download path fires
+        # one incident report + Slack/Telegram alert per attacking IP.
+        if status_code == 429 and "/docs/download" in request.url.path:
+            ip = (
+                request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                or request.client.host
+            )
+            _maybe_report_exfiltration(ip, request.url.path)
+
         # Map status to event type (default to suspicious for 4xx we don't recognize)
         if status_code in _STATUS_EVENT_MAP:
             event_type = _STATUS_EVENT_MAP[status_code]

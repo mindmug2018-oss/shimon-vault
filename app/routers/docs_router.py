@@ -24,8 +24,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+from rate_limit import limiter
 from sqlalchemy.orm import Session
 
 import config
@@ -36,7 +35,6 @@ from services.audit_service import write_event
 from services.s3_service import delete_s3_file, generate_presigned_url, upload_to_s3
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 # Track download counts per IP to detect exfiltration
 _download_counts: dict[str, list] = {}
@@ -149,6 +147,15 @@ def download_document(
     Exceeding this triggers the exfiltration detection alert.
     """
     ip = request.headers.get("x-forwarded-for", request.client.host).split(",")[0].strip()
+
+    # doc_id must be a valid UUID before hitting the DB -- a malformed or
+    # non-existent ID (e.g. a fuzzed/fake ID during an exfiltration attempt)
+    # otherwise raises an unhandled SQLAlchemy/psycopg2 cast error and a
+    # raw 500 instead of a clean 404.
+    try:
+        _uuid.UUID(str(doc_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="Document not found")
 
     doc = db.query(Document).filter(
         Document.id == doc_id,

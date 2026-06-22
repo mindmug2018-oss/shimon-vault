@@ -34,10 +34,6 @@ from sqlalchemy.orm import Session
 import config
 from database import get_read_db
 from models import User, UserRole
-from database import get_write_db
-from services.audit_service import write_event, write_security_incident
-from services.notify_service import notify_all
-from models import AuditEventType
 
 # ─── Password hashing ────────────────────────────────────────────────────────
 # bcrypt is intentionally slow (work factor 12) to make brute-force expensive.
@@ -123,7 +119,8 @@ def require_role(*allowed_roles: UserRole):
           ...
 
     Returns HTTP 403 Forbidden if the user's role is not in allowed_roles.
-    The audit log is written by the middleware, not here.
+    Violation tracking and account suspension are handled by
+    middleware/audit_middleware.py, not here.
     """
     def dependency(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in allowed_roles:

@@ -10,6 +10,7 @@ S3 bucket: config.S3_BUCKET_DOCS
 All files are encrypted at rest (SSE-S3, configured in Terraform).
 """
 
+import json
 import uuid
 from datetime import datetime
 
@@ -79,6 +80,23 @@ def generate_presigned_url(s3_key: str, expires_seconds: int = 900) -> str:
         ExpiresIn=expires_seconds,
     )
     return url
+
+
+def upload_incident_report(incident_type: str, report: dict) -> str:
+    """
+    Upload a full incident report (JSON) to the reports bucket.
+    Key format: incidents/{incident_type}/{date}/{uuid}.json
+    """
+    date_prefix = datetime.utcnow().strftime("%Y-%m-%d")
+    unique_id = str(uuid.uuid4())[:8]
+    s3_key = f"incidents/{incident_type}/{date_prefix}/{unique_id}.json"
+    _get_s3().put_object(
+        Bucket=config.S3_BUCKET_REPORTS,
+        Key=s3_key,
+        Body=json.dumps(report, default=str).encode("utf-8"),
+        ContentType="application/json",
+    )
+    return s3_key
 
 
 def delete_s3_file(s3_key: str) -> bool:
