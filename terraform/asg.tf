@@ -108,17 +108,17 @@ resource "aws_launch_template" "app" {
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project_name}-asg"
   vpc_zone_identifier = [aws_subnet.private.id]
-  min_size            = 0   # idle at rest — costs nothing until you demo it
+  min_size            = 1
   max_size            = 2
-  desired_capacity    = 0   # bump to 1 to start the scale-out demo
+  desired_capacity    = 1
 
   launch_template {
     id      = aws_launch_template.app.id
     version = "$Latest"
   }
 
-  # NOT in the blue target group anymore — standalone scale-out demo only.
-  health_check_type         = "EC2"
+  target_group_arns         = [aws_lb_target_group.blue.arn]
+  health_check_type         = "ELB"
   health_check_grace_period = 300
 
   tag {

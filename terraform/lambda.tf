@@ -129,6 +129,21 @@ resource "aws_sns_topic_subscription" "log_incident" {
   endpoint  = aws_lambda_function.log_incident.arn
 }
 
+# ─── log_incident: also subscribed to infra-alert topic ──────────────────────
+resource "aws_lambda_permission" "log_incident_infra_sns" {
+  statement_id  = "AllowInfraAlertSNSInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.log_incident.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.infra_alert.arn
+}
+
+resource "aws_sns_topic_subscription" "log_incident_infra" {
+  topic_arn = aws_sns_topic.infra_alert.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.log_incident.arn
+}
+
 # ─── validate_file ────────────────────────────────────────────────────────────
 resource "aws_lambda_function" "validate_file" {
   function_name    = "${var.project_name}-validate-file"

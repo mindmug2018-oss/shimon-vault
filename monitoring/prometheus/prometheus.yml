@@ -27,38 +27,24 @@ scrape_configs:
           instance: "onprem-proj-mgmt"
 
   - job_name: "ec2-nodes"
-    ec2_sd_configs:
-      - region: ap-northeast-2
-        port: 9100
-        refresh_interval: 60s
-        filters:
-          - name: "tag:Project"
-            values: ["shimonvault"]
-          - name: "instance-state-name"
-            values: ["running"]
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/ec2_nodes.json
+        refresh_interval: 30s
     relabel_configs:
-      - source_labels: [__meta_ec2_tag_Name]
+      - source_labels: [instance]
         target_label: instance
-      - source_labels: [__meta_ec2_tag_Role]
-        target_label: role
-      - source_labels: [__meta_ec2_private_ip]
-        target_label: private_ip
 
   - job_name: "fastapi-app"
-    ec2_sd_configs:
-      - region: ap-northeast-2
-        port: 8000
-        refresh_interval: 60s
-        filters:
-          - name: "tag:Project"
-            values: ["shimonvault"]
-          - name: "tag:Role"
-            values: ["app"]
-          - name: "instance-state-name"
-            values: ["running"]
+    # Uses Tailscale IP because proj-mgmt reaches EC2 via Tailscale mesh,
+    # not the AWS private subnet. EC2 service discovery finds the private IP
+    # (10.0.2.x) which is unreachable from proj-mgmt directly.
+    # deploy.sh updates this IP automatically after each terraform apply.
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/fastapi_app.json
+        refresh_interval: 30s
     metrics_path: "/metrics"
     relabel_configs:
-      - source_labels: [__meta_ec2_tag_Name]
+      - source_labels: [instance]
         target_label: instance
-      - source_labels: [__meta_ec2_tag_Role]
-        target_label: role

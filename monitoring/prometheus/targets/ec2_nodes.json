@@ -1,0 +1,1 @@
+[{"targets": ["100.116.211.124:9100"], "labels": {"instance": "shimonvault-app-blue", "job": "ec2-nodes"}}]

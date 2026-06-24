@@ -27,10 +27,51 @@ TAILSCALE_IP=$(ssh -i "$KEY" \
     "tailscale ip -4 2>/dev/null || echo ''" 2>/dev/null || echo "")
 
 if [ -z "$TAILSCALE_IP" ]; then
-    echo "⚠️  Could not get Tailscale IP — skipping Portainer config"
+    echo "⚠️  Could not get Tailscale IP via SSH — trying tailscale status on proj-mgmt..."
+    TAILSCALE_IP=$(tailscale status --json 2>/dev/null | python3 -c "
+import sys,json
+data=json.load(sys.stdin)
+for p in (data.get('Peer') or {}).values():
+    if 'shimonvault-app' in p.get('HostName','') and p.get('TailscaleIPs'):
+        print(p['TailscaleIPs'][0]); break
+" 2>/dev/null || echo "")
+fi
+if [ -z "$TAILSCALE_IP" ]; then
+    echo "⚠️  Could not get Tailscale IP from any source — skipping Portainer + Prometheus config"
     exit 0
 fi
 echo "✅ EC2 Tailscale IP: $TAILSCALE_IP"
+
+# Update Prometheus fastapi-app scrape target with new Tailscale IP
+TARGETS_FILE="$(dirname "$0")/../monitoring/prometheus/targets/fastapi_app.json"
+cat > "$TARGETS_FILE" << TARGETS_EOF
+[
+  {
+    "targets": [":8000"],
+    "labels": {
+      "instance": "shimonvault-app-blue",
+      "role": "app"
+    }
+  }
+]
+TARGETS_EOF
+echo "✅ Prometheus fastapi-app target updated → $TAILSCALE_IP:8000"
+
+# Update Prometheus ec2-nodes scrape target with new Tailscale IP
+EC2_NODES_FILE="$(dirname "$0")/../monitoring/prometheus/targets/ec2_nodes.json"
+cat > "$EC2_NODES_FILE" << NODES_EOF
+[
+  {
+    "targets": [":9100"],
+    "labels": {
+      "instance": "shimonvault-app-blue",
+      "job": "ec2-nodes"
+    }
+  }
+]
+NODES_EOF
+echo "✅ Prometheus ec2-nodes target updated → $TAILSCALE_IP:9100"
+curl -s -X POST http://localhost:9090/-/reload > /dev/null 2>&1 && echo "✅ Prometheus reloaded"
 
 python3 -c "
 import re
