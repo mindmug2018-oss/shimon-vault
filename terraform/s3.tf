@@ -7,6 +7,7 @@
 
 resource "aws_s3_bucket" "docs" {
   bucket = "${var.project_name}-docs-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true 
   tags = {
     Name    = "${var.project_name}-docs"
     Project = var.project_name
@@ -41,6 +42,7 @@ resource "aws_s3_bucket_versioning" "docs" {
 
 resource "aws_s3_bucket" "reports" {
   bucket = "${var.project_name}-reports-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true 
   tags = {
     Name    = "${var.project_name}-reports"
     Project = var.project_name

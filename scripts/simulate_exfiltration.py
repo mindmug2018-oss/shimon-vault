@@ -118,10 +118,12 @@ def main():
         print(f"  ❌ Failed to list documents: {exc}")
         sys.exit(1)
 
-    if not docs:
-        # Generate fake IDs for demo purposes if no real docs exist
-        docs = [{"id": f"doc-{i:04d}"} for i in range(1, 51)]
-        print(f"  (No real docs found — using {len(docs)} fake IDs for rate-limit demo)\n")
+    # Always use fake IDs for the rate-limit demo — real docs would succeed
+    # on the first request and stop before hitting the limit (only 1 real doc
+    # typically exists). Fake UUIDs return 404 but still count toward the
+    # per-IP rate limit, which is what we want to demonstrate.
+    docs = [{"id": f"doc-{i:04d}"} for i in range(1, 51)]
+    print(f"  (Using {len(docs)} fake IDs for rate-limit demo — triggers 429 at request #11)\n")
 
     print("⚠️  Starting bulk download — this will trigger the rate limiter.")
     print("   Watch Grafana → 'File access by user' panel spike.")

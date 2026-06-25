@@ -122,6 +122,7 @@ def _maybe_report_exfiltration(ip: str, path: str) -> None:
         f"Time: {datetime.now(timezone.utc).isoformat()}"
     )
 
+
 # Map HTTP status codes to event types for security-relevant responses
 _STATUS_EVENT_MAP = {
     401: AuditEventType.LOGIN_FAILURE,

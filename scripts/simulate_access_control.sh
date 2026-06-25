@@ -24,7 +24,44 @@ echo "  ShimonVault — Broken Access Control Simulation"
 echo "  Target: $BASE_URL"
 echo "════════════════════════════════════════════════"
 echo ""
-echo "Step 1: Log in as a VIEWER (low privilege account)..."
+# ── Reset viewer suspension from any previous run ────────────────────────────
+# ── Reset viewer suspension from any previous run ────────────────────────────
+echo "🔄 Resetting viewer account suspension (if any from previous run)..."
+RDS_RELAY=$(tailscale status --json 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for p in (data.get('Peer') or {}).values():
+    if 'shimonvault-app' in p.get('HostName', '') and p.get('TailscaleIPs'):
+        print(p['TailscaleIPs'][0]); break
+" 2>/dev/null || echo "")
+if [ -n "\$RDS_RELAY" ]; then
+    docker run --rm --network host \
+        -e PGPASSWORD="\${DB_PASSWORD:-shimonvaultdb}" \
+        postgres:16-alpine \
+        psql -h "\$RDS_RELAY" -p 5432 -U shimonvault -d shimonvault \
+        -c "UPDATE users SET suspended = false WHERE username = 'viewer';" \
+        > /dev/null 2>&1 && echo "   ✅ Viewer account reset" || true
+fi
+echo ""
+
+echo "🔄 Resetting viewer account suspension (if any from previous run)..."
+RDS_RELAY=$(tailscale status --json 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for p in (data.get('Peer') or {}).values():
+    if 'shimonvault-app' in p.get('HostName', '') and p.get('TailscaleIPs'):
+        print(p['TailscaleIPs'][0]); break
+" 2>/dev/null || echo "")
+if [ -n "\$RDS_RELAY" ]; then
+    docker run --rm --network host \
+        -e PGPASSWORD="\${DB_PASSWORD:-shimonvaultdb}" \
+        postgres:16-alpine \
+        psql -h "\$RDS_RELAY" -p 5432 -U shimonvault -d shimonvault \
+        -c "UPDATE users SET suspended = false WHERE username = 'viewer';" \
+        > /dev/null 2>&1 && echo "   ✅ Viewer account reset" || true
+fi
+echo ""
+
 
 # ── Login as viewer ───────────────────────────────────────────────────────────
 VIEWER_TOKEN=$(curl -s -X POST "$BASE_URL/auth/login" \
